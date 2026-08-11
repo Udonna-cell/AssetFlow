@@ -18,6 +18,7 @@ const registerBuyerFavorites = require('./handlers/buyer/favorites');
 const registerBuyerReferral = require('./handlers/buyer/referral');
 const registerAdminAnalytics = require('./handlers/admin/analytics');
 const registerAdminHome = require('./handlers/admin/home');
+const registerAdminSettings = require('./handlers/admin/settings');
 
 if (!config.botToken) {
   logger.error('BOT_TOKEN missing in .env file! Exiting process...');
@@ -36,6 +37,7 @@ async function bootstrap() {
 
   // Initialize Database Service
   await dbService.init();
+  await config.refresh(dbService);
 
   // Middleware
   bot.use(authMiddleware);
@@ -54,6 +56,7 @@ async function bootstrap() {
   registerBuyerReferral(bot);
   registerAdminAnalytics(bot);
   registerAdminHome(bot);
+  registerAdminSettings(bot);
 
   // Launch Bot
   bot.launch()

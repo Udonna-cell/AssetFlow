@@ -80,7 +80,8 @@ module.exports = (bot) => {
       `━━━━━━━━━━━━━━━━━━━━\n` +
       `📦 **Product:** ${product.title}\n` +
       `💵 **Price Paid:** \`$${price.toFixed(2)}\`\n` +
-      `💳 **Remaining Balance:** \`$${formattedBalance}\` \n\n` +
+      `💳 **Remaining Balance:** \`$${formattedBalance}\` \n` +
+      `🆔 **Order ID:** \`${result.orderId}\`\n\n` +
       `🔑 **Your Delivered Credentials:**\n` +
       `\`\`\`\n` +
       `${result.credentials}\n` +
@@ -129,6 +130,8 @@ module.exports = (bot) => {
         `   ├ 🆔 Order: \`${ord.order_id}\` | Paid: \`$${Number(ord.price_paid).toFixed(2)}\`\n` +
         `   └ 🔑 Credentials:\n\`\`\`\n${ord.credentials_delivered}\n\`\`\`\n`;
     });
+
+    vaultText += `\n💡 *Tip: Tap the credential blocks above to copy them instantly.*`;
 
     return ctx.editMessageText(vaultText, {
       parse_mode: 'Markdown',

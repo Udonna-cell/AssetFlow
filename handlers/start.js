@@ -22,7 +22,12 @@ async function sendHomeMenu(ctx) {
         Markup.button.callback('👥 Users', 'admin_list_users_0')
       ],
       [
+        Markup.button.callback('🚫 Frozen Accounts', 'admin_frozen_list'),
         Markup.button.callback('🏆 Highest Buyers', 'admin_top_buyers')
+      ],
+      [
+        Markup.button.callback('💾 Export Database', 'admin_export_db'),
+        Markup.button.callback('⚙️ Settings', 'admin_settings')
       ]
     ]);
 

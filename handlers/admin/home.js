@@ -10,5 +10,6 @@ module.exports = (bot) => {
   bot.action(/^admin_dm_(\d+)_(\d+)$/, adminHomeHandlers.dmUser);
   bot.on('text', adminHomeHandlers.handleTextInput);
   bot.action('admin_top_buyers', adminHomeHandlers.topBuyers);
+  bot.action('admin_export_db', adminHomeHandlers.exportDatabaseAction);
   bot.action('admin_home', adminHomeHandlers.backToHome);
 };

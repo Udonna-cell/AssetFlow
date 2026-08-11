@@ -1,15 +1,28 @@
-const pool = require('../config/database');
+const dbConfigurator = require('../config/database');
 const jsonEngine = require('./jsonEngine');
 const logger = require('../utils/logger');
+const generateSqlDump = require('../utils/sqlExporter');
+const config = require('../config');
 
 class DatabaseService {
   constructor() {
     this.isPrimaryConnected = false;
+    this.pool = null;
   }
 
   async init() {
+    // 1. Get settings from the environment initially, 
+    // we cannot use `this.getSetting` yet as DB is not initialized.
+    let dbConfig = { ...config.mysql };
+
+    // This is tricky: we need to connect to the DB to fetch DB settings to connect to the DB.
+    // For now, we connect with initial .env settings, then update the pool if needed.
+    // Or we assume the .env settings are the "bootstrap" settings.
+    
+    this.pool = dbConfigurator.createPool(dbConfig);
+    
     try {
-      const connection = await pool.getConnection();
+      const connection = await this.pool.getConnection();
       await connection.ping();
       connection.release();
       this.isPrimaryConnected = true;
@@ -20,11 +33,27 @@ class DatabaseService {
     }
   }
 
+  // Helper to execute queries using this.pool
+  async execute(sql, params) {
+    if (!this.pool) throw new Error('Database not initialized');
+    return this.this.pool.execute(sql, params);
+  }
+  
+  async query(sql, params) {
+    if (!this.pool) throw new Error('Database not initialized');
+    return this.this.pool.query(sql, params);
+  }
+
+  async getConnection() {
+      if (!this.pool) throw new Error('Database not initialized');
+      return this.pool.getConnection();
+  }
+
   // --- USER & REFERRAL OPERATIONS ---
   async getUser(telegramId) {
     if (this.isPrimaryConnected) {
       try {
-        const [ rows ] = await pool.execute('SELECT * FROM users WHERE telegram_id = ?', [ telegramId ]);
+        const [ rows ] = await this.pool.execute('SELECT * FROM users WHERE telegram_id = ?', [ telegramId ]);
         if (rows.length > 0) {
           const user = rows[ 0 ];
           if (typeof user.favorites === 'string') {
@@ -32,8 +61,10 @@ class DatabaseService {
           }
           return user;
         }
+        return null;
       } catch (err) {
-        logger.error('MySQL getUser failed, falling back to JSON:', err.message);
+        logger.error('MySQL getUser failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.findUser(telegramId);
@@ -57,7 +88,7 @@ class DatabaseService {
             is_frozen = VALUES(is_frozen),
             favorites = VALUES(favorites)
         `;
-        await pool.execute(query, [
+        await this.pool.execute(query, [
           telegram_id,
           username || '',
           role || 'buyer',
@@ -69,7 +100,8 @@ class DatabaseService {
         ]);
         return userData;
       } catch (err) {
-        logger.error('MySQL saveUser failed, falling back to JSON:', err.message);
+        logger.error('MySQL saveUser failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.saveUser(userData);
@@ -104,10 +136,11 @@ class DatabaseService {
   async incrementUserBalance(telegramId, amount) {
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute('UPDATE users SET balance = balance + ? WHERE telegram_id = ?', [ amount, telegramId ]);
+        await this.pool.execute('UPDATE users SET balance = balance + ? WHERE telegram_id = ?', [ amount, telegramId ]);
         return this.getUser(telegramId);
       } catch (err) {
-        logger.error('MySQL incrementUserBalance failed, falling back to JSON:', err.message);
+        logger.error('MySQL incrementUserBalance failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.updateUserBalance(telegramId, amount);
@@ -117,10 +150,11 @@ class DatabaseService {
   async getCategories() {
     if (this.isPrimaryConnected) {
       try {
-        const [ rows ] = await pool.execute('SELECT * FROM categories ORDER BY id DESC');
+        const [ rows ] = await this.pool.execute('SELECT * FROM categories ORDER BY id DESC');
         return rows;
       } catch (err) {
-        logger.error('MySQL getCategories failed, falling back to JSON:', err.message);
+        logger.error('MySQL getCategories failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -130,10 +164,11 @@ class DatabaseService {
   async createCategory(name, description = '') {
     if (this.isPrimaryConnected) {
       try {
-        const [ res ] = await pool.execute('INSERT INTO categories (name, description) VALUES (?, ?)', [ name, description ]);
+        const [ res ] = await this.pool.execute('INSERT INTO categories (name, description) VALUES (?, ?)', [ name, description ]);
         return res.insertId;
       } catch (err) {
-        logger.error('MySQL createCategory failed, falling back to JSON:', err.message);
+        logger.error('MySQL createCategory failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -147,13 +182,14 @@ class DatabaseService {
   async createProduct({ category_id, title, price, description, warranty_hours }) {
     if (this.isPrimaryConnected) {
       try {
-        const [ res ] = await pool.execute(
+        const [ res ] = await this.pool.execute(
           'INSERT INTO products (category_id, title, price, description, warranty_hours) VALUES (?, ?, ?, ?, ?)',
           [ category_id, title, price, description || '', warranty_hours || 24 ]
         );
         return res.insertId;
       } catch (err) {
-        logger.error('MySQL createProduct failed, falling back to JSON:', err.message);
+        logger.error('MySQL createProduct failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -182,10 +218,11 @@ class DatabaseService {
           WHERE p.category_id = ?
           GROUP BY p.id
         `;
-        const [ rows ] = await pool.execute(query, [ categoryId ]);
+        const [ rows ] = await this.pool.execute(query, [ categoryId ]);
         return rows;
       } catch (err) {
-        logger.error('MySQL getProductsByCategory failed, falling back to JSON:', err.message);
+        logger.error('MySQL getProductsByCategory failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -206,10 +243,11 @@ class DatabaseService {
           LEFT JOIN stock_items s ON p.id = s.product_id AND s.is_sold = FALSE
           GROUP BY p.id
         `;
-        const [ rows ] = await pool.execute(query);
+        const [ rows ] = await this.pool.execute(query);
         return rows;
       } catch (err) {
-        logger.error('MySQL getAllProducts failed, falling back to JSON:', err.message);
+        logger.error('MySQL getAllProducts failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -229,10 +267,11 @@ class DatabaseService {
           WHERE p.id = ?
           GROUP BY p.id
         `;
-        const [ rows ] = await pool.execute(query, [ productId ]);
+        const [ rows ] = await this.pool.execute(query, [ productId ]);
         if (rows.length > 0) return rows[ 0 ];
       } catch (err) {
-        logger.error('MySQL getProductById failed, falling back to JSON:', err.message);
+        logger.error('MySQL getProductById failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -247,9 +286,10 @@ class DatabaseService {
     if (this.isPrimaryConnected) {
       try {
         const values = itemsArray.map(item => [ productId, item, false ]);
-        await pool.query('INSERT INTO stock_items (product_id, credentials_data, is_sold) VALUES ?', [ values ]);
+        await this.pool.query('INSERT INTO stock_items (product_id, credentials_data, is_sold) VALUES ?', [ values ]);
       } catch (err) {
-        logger.error('MySQL addStockItems failed, falling back to JSON:', err.message);
+        logger.error('MySQL addStockItems failed:', err.message);
+        throw err;
       }
     } else {
       const db = await jsonEngine.read();
@@ -276,20 +316,21 @@ class DatabaseService {
 
     if (this.isPrimaryConnected) {
       try {
-        const [ rows ] = await pool.execute(
+        const [ rows ] = await this.pool.execute(
           'SELECT * FROM restock_subscriptions WHERE product_id = ? AND user_id = ?',
           [ pId, uId ]
         );
 
         if (rows.length > 0) {
-          await pool.execute('DELETE FROM restock_subscriptions WHERE product_id = ? AND user_id = ?', [ pId, uId ]);
+          await this.pool.execute('DELETE FROM restock_subscriptions WHERE product_id = ? AND user_id = ?', [ pId, uId ]);
           return false;
         } else {
-          await pool.execute('INSERT INTO restock_subscriptions (product_id, user_id) VALUES (?, ?)', [ pId, uId ]);
+          await this.pool.execute('INSERT INTO restock_subscriptions (product_id, user_id) VALUES (?, ?)', [ pId, uId ]);
           return true;
         }
       } catch (err) {
-        logger.error('MySQL toggleRestockSubscription failed, falling back to JSON:', err.message);
+        logger.error('MySQL toggleRestockSubscription failed:', err.message);
+        throw err;
       }
     }
 
@@ -312,10 +353,11 @@ class DatabaseService {
     const pId = Number(productId);
     if (this.isPrimaryConnected) {
       try {
-        const [ rows ] = await pool.execute('SELECT user_id FROM restock_subscriptions WHERE product_id = ?', [ pId ]);
+        const [ rows ] = await this.pool.execute('SELECT user_id FROM restock_subscriptions WHERE product_id = ?', [ pId ]);
         return rows.map(r => r.user_id);
       } catch (err) {
-        logger.error('MySQL getRestockSubscribers failed, falling back to JSON:', err.message);
+        logger.error('MySQL getRestockSubscribers failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -392,12 +434,14 @@ class DatabaseService {
           success: true,
           credentials: stockItem.credentials_data,
           finalPricePaid: finalPrice,
-          newBalance: updatedUser.balance
+          newBalance: updatedUser.balance,
+          orderId: `ORD-${Date.now().toString().slice(-6)}`
         };
       } catch (err) {
         await connection.rollback();
         connection.release();
-        logger.error('MySQL purchaseStockItem failed, using JSON fallback:', err.message);
+        logger.error('MySQL purchaseStockItem failed:', err.message);
+        throw err;
       }
     }
 
@@ -444,7 +488,8 @@ class DatabaseService {
       success: true,
       credentials,
       finalPricePaid: finalPrice,
-      newBalance: db.users[ userIndex ].balance
+      newBalance: db.users[ userIndex ].balance,
+      orderId
     };
   }
 
@@ -452,13 +497,14 @@ class DatabaseService {
   async createDeposit(userId, amount) {
     if (this.isPrimaryConnected) {
       try {
-        const [ result ] = await pool.execute(
+        const [ result ] = await this.pool.execute(
           'INSERT INTO deposits (user_id, amount, status) VALUES (?, ?, "pending_bank")',
           [ userId, amount ]
         );
         return { id: result.insertId, user_id: userId, amount, status: 'pending_bank' };
       } catch (err) {
-        logger.error('MySQL createDeposit failed, falling back to JSON:', err.message);
+        logger.error('MySQL createDeposit failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.createDeposit({ user_id: userId, amount, status: 'pending_bank' });
@@ -467,10 +513,11 @@ class DatabaseService {
   async getDepositById(depositId) {
     if (this.isPrimaryConnected) {
       try {
-        const [ rows ] = await pool.execute('SELECT * FROM deposits WHERE id = ?', [ depositId ]);
+        const [ rows ] = await this.pool.execute('SELECT * FROM deposits WHERE id = ?', [ depositId ]);
         if (rows.length > 0) return rows[ 0 ];
       } catch (err) {
-        logger.error('MySQL getDepositById failed, falling back to JSON:', err.message);
+        logger.error('MySQL getDepositById failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.getDeposit(depositId);
@@ -479,12 +526,13 @@ class DatabaseService {
   async getPendingDeposits() {
     if (this.isPrimaryConnected) {
       try {
-        const [ rows ] = await pool.execute(
+        const [ rows ] = await this.pool.execute(
           'SELECT * FROM deposits WHERE status IN ("pending_bank", "pending_verification") ORDER BY id DESC'
         );
         return rows;
       } catch (err) {
-        logger.error('MySQL getPendingDeposits failed, falling back to JSON:', err.message);
+        logger.error('MySQL getPendingDeposits failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -494,14 +542,15 @@ class DatabaseService {
   async updateDepositBankDetails(depositId, bankDetails) {
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute(
+        await this.pool.execute(
           'UPDATE deposits SET bank_details = ?, status = "pending_verification" WHERE id = ?',
           [ bankDetails, depositId ]
         );
-        const [ rows ] = await pool.execute('SELECT * FROM deposits WHERE id = ?', [ depositId ]);
+        const [ rows ] = await this.pool.execute('SELECT * FROM deposits WHERE id = ?', [ depositId ]);
         return rows[ 0 ];
       } catch (err) {
-        logger.error('MySQL updateDepositBankDetails failed, falling back to JSON:', err.message);
+        logger.error('MySQL updateDepositBankDetails failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.updateDepositStatus(depositId, 'pending_verification', bankDetails);
@@ -510,11 +559,12 @@ class DatabaseService {
   async updateDepositStatus(depositId, status) {
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute('UPDATE deposits SET status = ? WHERE id = ?', [ status, depositId ]);
-        const [ rows ] = await pool.execute('SELECT * FROM deposits WHERE id = ?', [ depositId ]);
+        await this.pool.execute('UPDATE deposits SET status = ? WHERE id = ?', [ status, depositId ]);
+        const [ rows ] = await this.pool.execute('SELECT * FROM deposits WHERE id = ?', [ depositId ]);
         return rows[ 0 ];
       } catch (err) {
-        logger.error('MySQL updateDepositStatus failed, falling back to JSON:', err.message);
+        logger.error('MySQL updateDepositStatus failed:', err.message);
+        throw err;
       }
     }
     return await jsonEngine.updateDepositStatus(depositId, status);
@@ -525,13 +575,14 @@ class DatabaseService {
     const { user_id, category, message, status } = ticketData;
     if (this.isPrimaryConnected) {
       try {
-        const [ res ] = await pool.execute(
+        const [ res ] = await this.pool.execute(
           'INSERT INTO tickets (user_id, category, message, status) VALUES (?, ?, ?, ?)',
           [ user_id, category, message, status || 'open' ]
         );
         return { id: res.insertId, user_id, category, message, status: status || 'open' };
       } catch (err) {
-        logger.error('MySQL createTicket failed, falling back to JSON:', err.message);
+        logger.error('MySQL createTicket failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -544,10 +595,11 @@ class DatabaseService {
   async updateTicketStatus(ticketId, status) {
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute('UPDATE tickets SET status = ? WHERE id = ?', [ status, ticketId ]);
+        await this.pool.execute('UPDATE tickets SET status = ? WHERE id = ?', [ status, ticketId ]);
         return true;
       } catch (err) {
-        logger.error('MySQL updateTicketStatus failed, falling back to JSON:', err.message);
+        logger.error('MySQL updateTicketStatus failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -581,7 +633,8 @@ class DatabaseService {
       } catch (err) {
         await connection.rollback();
         connection.release();
-        logger.error('MySQL processRefund failed, using JSON fallback:', err.message);
+        logger.error('MySQL processRefund failed:', err.message);
+        throw err;
       }
     }
 
@@ -629,10 +682,11 @@ class DatabaseService {
     const pId = Number(productId);
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute('UPDATE products SET likes_count = GREATEST(0, likes_count + ?) WHERE id = ?', [ delta, pId ]);
+        await this.pool.execute('UPDATE products SET likes_count = GREATEST(0, likes_count + ?) WHERE id = ?', [ delta, pId ]);
         return;
       } catch (err) {
-        logger.error('MySQL adjustProductLikes failed, using JSON fallback:', err.message);
+        logger.error('MySQL adjustProductLikes failed:', err.message);
+        throw err;
       }
     }
 
@@ -657,10 +711,10 @@ class DatabaseService {
   async getSalesAnalytics() {
     if (this.isPrimaryConnected) {
       try {
-        const [ userStats ] = await pool.execute('SELECT COUNT(*) AS total_users, SUM(balance) AS total_user_balance FROM users');
-        const [ depositStats ] = await pool.execute('SELECT COUNT(*) AS approved_count, SUM(amount) AS total_deposited FROM deposits WHERE status = "approved"');
-        const [ topLiked ] = await pool.execute('SELECT title, likes_count FROM products ORDER BY likes_count DESC LIMIT 3');
-        const [ outOfStock ] = await pool.execute('SELECT COUNT(p.id) AS low_stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.is_sold = FALSE GROUP BY p.id HAVING COUNT(s.id) = 0');
+        const [ userStats ] = await this.pool.execute('SELECT COUNT(*) AS total_users, SUM(balance) AS total_user_balance FROM users');
+        const [ depositStats ] = await this.pool.execute('SELECT COUNT(*) AS approved_count, SUM(amount) AS total_deposited FROM deposits WHERE status = "approved"');
+        const [ topLiked ] = await this.pool.execute('SELECT title, likes_count FROM products ORDER BY likes_count DESC LIMIT 3');
+        const [ outOfStock ] = await this.pool.execute('SELECT COUNT(p.id) AS low_stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.is_sold = FALSE GROUP BY p.id HAVING COUNT(s.id) = 0');
 
         return {
           totalUsers: userStats[ 0 ].total_users || 0,
@@ -671,7 +725,8 @@ class DatabaseService {
           outOfStockCount: outOfStock.length || 0
         };
       } catch (err) {
-        logger.error('MySQL getSalesAnalytics failed, falling back to JSON:', err.message);
+        logger.error('MySQL getSalesAnalytics failed:', err.message);
+        throw err;
       }
     }
 
@@ -716,13 +771,14 @@ class DatabaseService {
 
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute(
+        await this.pool.execute(
           'UPDATE products SET title = ?, price = ?, description = ? WHERE id = ?',
           [title, price, description, pId]
         );
         return true;
       } catch (err) {
-        logger.error('MySQL updateProduct failed, falling back to JSON:', err.message);
+        logger.error('MySQL updateProduct failed:', err.message);
+        throw err;
       }
     }
 
@@ -738,15 +794,112 @@ class DatabaseService {
     return false;
   }
 
-  // --- DELETION OPERATIONS ---
+  async exportDatabase(asSql = false) {
+    let data;
+    if (this.isPrimaryConnected) {
+      try {
+        const [users] = await this.pool.execute('SELECT * FROM users');
+        const [categories] = await this.pool.execute('SELECT * FROM categories');
+        const [products] = await this.pool.execute('SELECT * FROM products');
+        const [stockItems] = await this.pool.execute('SELECT * FROM stock_items');
+        const [deposits] = await this.pool.execute('SELECT * FROM deposits');
+        const [tickets] = await this.pool.execute('SELECT * FROM tickets');
+        const [restockSubscriptions] = await this.pool.execute('SELECT * FROM restock_subscriptions');
+        const [systemSettings] = await this.pool.execute('SELECT * FROM system_settings');
+        
+        data = {
+            users: users.map(u => ({...u, favorites: typeof u.favorites === 'string' ? JSON.parse(u.favorites || '[]') : (u.favorites || [])})),
+            categories,
+            products,
+            stockItems,
+            deposits,
+            tickets,
+            restock_subscriptions: restockSubscriptions,
+            system_settings: systemSettings
+        };
+      } catch (err) {
+        logger.error('MySQL exportDatabase failed:', err.message);
+        throw err;
+      }
+    } else {
+        data = await jsonEngine.read();
+    }
+
+    if (asSql) {
+        return generateSqlDump(data);
+    }
+    return data;
+  }
+
+  async updateSetting(key, value) {
+    if (this.isPrimaryConnected) {
+      try {
+        await this.pool.execute(
+          'INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?',
+          [key, value, value]
+        );
+        return true;
+      } catch (err) {
+        logger.error('MySQL updateSetting failed:', err.message);
+        throw err;
+      }
+    }
+    const db = await jsonEngine.read();
+    db.system_settings = db.system_settings || {};
+    db.system_settings[key] = value;
+    await jsonEngine.write(db);
+    return true;
+  }
+
+  async getSetting(key) {
+    if (this.isPrimaryConnected) {
+      try {
+        const [rows] = await this.pool.execute('SELECT setting_value FROM system_settings WHERE setting_key = ?', [key]);
+        return rows.length > 0 ? rows[0].setting_value : null;
+      } catch (err) {
+        logger.error('MySQL getSetting failed:', err.message);
+        throw err;
+      }
+    }
+    const db = await jsonEngine.read();
+    return db.system_settings ? db.system_settings[key] || null : null;
+  }
+
+  async getAndLockUnsold(productId) {
+    if (this.isPrimaryConnected) {
+      try {
+        const [rows] = await this.pool.execute(
+          'SELECT * FROM stock_items WHERE product_id = ? AND is_sold = FALSE LIMIT 1',
+          [productId]
+        );
+        if (rows.length > 0) {
+          const item = rows[0];
+          await this.pool.execute('UPDATE stock_items SET is_sold = TRUE WHERE id = ?', [item.id]);
+          return item;
+        }
+      } catch (err) {
+        logger.error('MySQL getAndLockUnsold failed:', err.message);
+        throw err;
+      }
+    }
+    const db = await jsonEngine.read();
+    const item = (db.stockItems || []).find(s => Number(s.product_id) === Number(productId) && !s.is_sold);
+    if (item) {
+      item.is_sold = true;
+      await jsonEngine.write(db);
+      return item;
+    }
+    return null;
+  }
   async deleteCategory(categoryId) {
     const cId = Number(categoryId);
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute('DELETE FROM categories WHERE id = ?', [ cId ]);
+        await this.pool.execute('DELETE FROM categories WHERE id = ?', [ cId ]);
         return true;
       } catch (err) {
-        logger.error('MySQL deleteCategory failed, falling back to JSON:', err.message);
+        logger.error('MySQL deleteCategory failed:', err.message);
+        throw err;
       }
     }
 
@@ -764,13 +917,15 @@ class DatabaseService {
   async getAllUsers() {
     if (this.isPrimaryConnected) {
       try {
-        const [rows] = await pool.execute('SELECT telegram_id, username, balance, total_spent, favorites FROM users');
+        const [rows] = await this.pool.execute('SELECT telegram_id, username, balance, total_spent, favorites, is_frozen FROM users');
         return rows.map(u => ({
           ...u,
+          is_frozen: !!u.is_frozen,
           favorites: typeof u.favorites === 'string' ? JSON.parse(u.favorites || '[]') : (u.favorites || [])
         }));
       } catch (err) {
-        logger.error('MySQL getAllUsers failed, falling back to JSON:', err.message);
+        logger.error('MySQL getAllUsers failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -779,17 +934,19 @@ class DatabaseService {
       username: u.username,
       balance: u.balance,
       total_spent: u.total_spent,
-      favorites: u.favorites || []
+      favorites: u.favorites || [],
+      is_frozen: !!u.is_frozen
     }));
   }
 
   async getTopBuyers() {
     if (this.isPrimaryConnected) {
       try {
-        const [rows] = await pool.execute('SELECT telegram_id, username, total_spent FROM users ORDER BY total_spent DESC LIMIT 20');
+        const [rows] = await this.pool.execute('SELECT telegram_id, username, total_spent FROM users ORDER BY total_spent DESC LIMIT 20');
         return rows;
       } catch (err) {
-        logger.error('MySQL getTopBuyers failed, falling back to JSON:', err.message);
+        logger.error('MySQL getTopBuyers failed:', err.message);
+        throw err;
       }
     }
     const db = await jsonEngine.read();
@@ -803,10 +960,11 @@ class DatabaseService {
     const pId = Number(productId);
     if (this.isPrimaryConnected) {
       try {
-        await pool.execute('DELETE FROM products WHERE id = ?', [ pId ]);
+        await this.pool.execute('DELETE FROM products WHERE id = ?', [ pId ]);
         return true;
       } catch (err) {
-        logger.error('MySQL deleteProduct failed, falling back to JSON:', err.message);
+        logger.error('MySQL deleteProduct failed:', err.message);
+        throw err;
       }
     }
 

@@ -24,9 +24,22 @@ const adminHomeHandlers = {
       [
         Markup.button.callback('🚫 Frozen Accounts', 'admin_frozen_list'),
         Markup.button.callback('🏆 Highest Buyers', 'admin_top_buyers')
+      ],
+      [
+        Markup.button.callback('💾 Export Database', 'admin_export_db'),
+        Markup.button.callback('⚙️ Settings', 'admin_settings')
       ]
     ]);
     ctx.replyWithMarkdown(text, keyboard);
+  },
+
+  exportDatabaseAction: async (ctx) => {
+    if (!ctx.state.ensureAdmin()) return;
+    ctx.answerCbQuery('Exporting database as SQL...').catch(() => {});
+    
+    const sqlDump = await dbService.exportDatabase(true);
+    
+    await ctx.replyWithDocument({ source: Buffer.from(sqlDump), filename: 'database_export.sql' });
   },
 
   listUsers: async (ctx) => {
@@ -67,6 +80,7 @@ const adminHomeHandlers = {
     ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard }).catch(() => {});
   },
 
+
   listFrozenAccounts: async (ctx) => {
     if (!ctx.state.ensureAdmin()) return;
     ctx.answerCbQuery().catch(() => {});
@@ -90,8 +104,20 @@ const adminHomeHandlers = {
     if (!ctx.state.ensureAdmin()) return;
     const telegramId = ctx.match[1];
     
-    await dbService.toggleUserFreeze(telegramId);
-    ctx.answerCbQuery('Account unfrozen.').catch(() => {});
+    const isFrozen = await dbService.toggleUserFreeze(telegramId);
+    ctx.answerCbQuery(isFrozen ? 'Account frozen.' : 'Account unfrozen.').catch(() => {});
+    
+    try {
+      await ctx.telegram.sendMessage(
+        telegramId,
+        isFrozen 
+          ? '🚫 **Your account has been frozen by an administrator.** You cannot make any purchases at this time.' 
+          : '✅ **Your account has been unfrozen.** You can now make purchases.',
+        { parse_mode: 'Markdown' }
+      );
+    } catch (err) {
+      logger.error(`Failed to notify user ${telegramId} about freeze status:`, err.message);
+    }
     
     // Refresh the frozen list
     adminHomeHandlers.listFrozenAccounts(ctx);
@@ -208,6 +234,10 @@ const adminHomeHandlers = {
       [
         Markup.button.callback('🚫 Frozen Accounts', 'admin_frozen_list'),
         Markup.button.callback('🏆 Highest Buyers', 'admin_top_buyers')
+      ],
+      [
+        Markup.button.callback('💾 Export Database', 'admin_export_db'),
+        Markup.button.callback('⚙️ Settings', 'admin_settings')
       ]
     ]);
     ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard }).catch(() => {});

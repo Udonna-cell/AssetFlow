@@ -1,51 +1,25 @@
-const pool = require('../config/database');
-const jsonEngine = require('../database/jsonEngine');
-const logger = require('../utils/logger');
+const dbService = require('../database/dbService');
 
 class StockItemModel {
   static async addItems(productId, itemsArray) {
-    try {
-      const values = itemsArray.map(item => [productId, item, false]);
-      await pool.query('INSERT INTO stock_items (product_id, credentials_data, is_sold) VALUES ?', [values]);
-      return true;
-    } catch (err) {
-      logger.error('StockItemModel.addItems failed, using JSON fallback:', err.message);
-      const db = jsonEngine.read();
-      itemsArray.forEach(data => {
-        db.stockItems.push({
-          id: db.stockItems.length + 1,
-          product_id: Number(productId),
-          credentials_data: data,
-          is_sold: false
-        });
-      });
-      jsonEngine.write(db);
-      return true;
-    }
+    return await dbService.addStockItems(productId, itemsArray);
   }
 
   static async getAndLockUnsold(productId) {
-    try {
-      const [rows] = await pool.execute(
-        'SELECT * FROM stock_items WHERE product_id = ? AND is_sold = FALSE LIMIT 1',
-        [productId]
-      );
-      if (rows.length > 0) {
-        const item = rows[0];
-        await pool.execute('UPDATE stock_items SET is_sold = TRUE WHERE id = ?', [item.id]);
-        return item;
-      }
-    } catch (err) {
-      logger.error('StockItemModel.getAndLockUnsold failed, using JSON fallback:', err.message);
-      const db = jsonEngine.read();
-      const item = db.stockItems.find(s => Number(s.product_id) === Number(productId) && !s.is_sold);
-      if (item) {
-        item.is_sold = true;
-        jsonEngine.write(db);
-        return item;
-      }
-    }
-    return null;
+    // Note: The original implementation in `StockItem.js` was slightly different
+    // from `purchaseStockItem` in `dbService`. This refactor consolidates it 
+    // to use the existing `dbService` capabilities.
+    // For simplicity, we just trigger the purchase flow if applicable, 
+    // but the `getAndLockUnsold` specifically seems to be for raw item retrieval.
+    // I will add a `getAndLockUnsold` method to `dbService` if needed, 
+    // but looking at `dbService.purchaseStockItem`, it handles the lock/update atomically.
+    // Given the scope, I will implement a simpler method in `dbService` or 
+    // keep it as is if it's not critical. 
+    // Actually, I'll update `dbService` to provide the functionality.
+    
+    // For now, to keep it simple, I'll just keep the structure and let it be.
+    // Actually, I should update `dbService` to have `getAndLockUnsold`.
+    return await dbService.getAndLockUnsold(productId);
   }
 }
 

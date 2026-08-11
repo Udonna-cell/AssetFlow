@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-module.exports = {
+const config = {
   botToken: process.env.BOT_TOKEN || '',
   adminIds: (process.env.ADMIN_IDS || '')
     .split(',')
@@ -13,6 +13,16 @@ module.exports = {
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'assetflow',
     port: Number(process.env.DB_PORT) || 3306,
-    connectTimeout: 5000 // Fast timeout to trigger JSON fallback if offline
+    connectTimeout: 5000
+  }
+};
+
+module.exports = {
+  ...config,
+  refresh: async (dbService) => {
+    const adminIdsStr = await dbService.getSetting('admin_ids');
+    if (adminIdsStr) {
+      config.adminIds = adminIdsStr.split(',').map(id => Number(id.trim())).filter(Boolean);
+    }
   }
 };
