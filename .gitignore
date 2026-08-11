@@ -1,0 +1,7 @@
+node_modules
+.env
+bot.log
+bot.pid
+database/fallback_db.json
+*.log
+.DS_Store
