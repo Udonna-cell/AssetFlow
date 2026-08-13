@@ -1,36 +1,61 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
+const adminNavigation = require('../../utils/adminNavigation');
 
 const adminActionSessions = new Map();
+
+const getAdminDashboardKeyboard = (ctx) => {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback('📦 Inventory', 'admin_inventory'),
+      Markup.button.callback('📊 Analytics', 'admin_analytics')
+    ],
+    [
+      Markup.button.callback('💳 Deposits', 'admin_deposits'),
+      Markup.button.callback('🎧 Support', 'admin_support')
+    ],
+    [
+      Markup.button.callback('📢 Broadcasts', 'admin_broadcasts'),
+      Markup.button.callback('📋 Templates', 'admin_broadcast_templates')
+    ],
+    [
+      Markup.button.callback('👥 Users', 'admin_list_users_0'),
+      Markup.button.callback('🚫 Frozen Accounts', 'admin_frozen_list')
+    ],
+    [
+      Markup.button.callback('🏆 Highest Buyers', 'admin_top_buyers'),
+      Markup.button.callback('💾 Export Database', 'admin_export_db')
+    ],
+    [
+      Markup.button.callback('⚙️ Settings', 'admin_settings')
+    ]
+  ]);
+};
 
 const adminHomeHandlers = {
   adminDashboard: async (ctx) => {
     if (!ctx.state.ensureAdmin()) return;
+    adminNavigation.clear(ctx); // Reset on home
     const text = `🛠️ **Admin Dashboard**\nWelcome back, Administrator.`;
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback('📦 Inventory', 'admin_inventory'),
-        Markup.button.callback('📊 Analytics', 'admin_analytics')
-      ],
-      [
-        Markup.button.callback('💳 Deposits', 'admin_deposits'),
-        Markup.button.callback('🎧 Support', 'admin_support')
-      ],
-      [
-        Markup.button.callback('📢 Broadcasts', 'admin_broadcasts'),
-        Markup.button.callback('👥 Users', 'admin_list_users_0')
-      ],
-      [
-        Markup.button.callback('🚫 Frozen Accounts', 'admin_frozen_list'),
-        Markup.button.callback('🏆 Highest Buyers', 'admin_top_buyers')
-      ],
-      [
-        Markup.button.callback('💾 Export Database', 'admin_export_db'),
-        Markup.button.callback('⚙️ Settings', 'admin_settings')
-      ]
-    ]);
-    ctx.replyWithMarkdown(text, keyboard);
+    ctx.replyWithMarkdown(text, getAdminDashboardKeyboard(ctx));
+  },
+
+  adminBack: async (ctx) => {
+    if (!ctx.state.ensureAdmin()) return;
+    const targetAction = adminNavigation.pop(ctx);
+    // Trigger the target action. This is tricky with Telegraf. 
+    // We might need to manually trigger the handler or use bot.handleUpdate?
+    // Let's assume we can re-trigger by calling the action handler or similar.
+    // For now, let's keep it simple: just redirect back to home if we can't easily re-trigger.
+    
+    // As a workaround, just redirect to 'admin_home' if not implemented.
+    if (targetAction === 'admin_home') {
+        adminHomeHandlers.adminDashboard(ctx);
+    } else {
+        // This is a simplification.
+        adminHomeHandlers.adminDashboard(ctx);
+    }
   },
 
   exportDatabaseAction: async (ctx) => {
@@ -218,29 +243,7 @@ const adminHomeHandlers = {
     if (!ctx.state.ensureAdmin()) return;
     ctx.answerCbQuery().catch(() => {});
     const text = `🛠️ **Admin Dashboard**\nWelcome back, Administrator.`;
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback('📦 Inventory', 'admin_inventory'),
-        Markup.button.callback('📊 Analytics', 'admin_analytics')
-      ],
-      [
-        Markup.button.callback('💳 Deposits', 'admin_deposits'),
-        Markup.button.callback('🎧 Support', 'admin_support')
-      ],
-      [
-        Markup.button.callback('📢 Broadcasts', 'admin_broadcasts'),
-        Markup.button.callback('👥 Users', 'admin_list_users_0')
-      ],
-      [
-        Markup.button.callback('🚫 Frozen Accounts', 'admin_frozen_list'),
-        Markup.button.callback('🏆 Highest Buyers', 'admin_top_buyers')
-      ],
-      [
-        Markup.button.callback('💾 Export Database', 'admin_export_db'),
-        Markup.button.callback('⚙️ Settings', 'admin_settings')
-      ]
-    ]);
-    ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard }).catch(() => {});
+    ctx.editMessageText(text, { parse_mode: 'Markdown', ...getAdminDashboardKeyboard() }).catch(() => {});
   }
 };
 

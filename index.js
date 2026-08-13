@@ -19,6 +19,7 @@ const registerBuyerReferral = require('./handlers/buyer/referral');
 const registerAdminAnalytics = require('./handlers/admin/analytics');
 const registerAdminHome = require('./handlers/admin/home');
 const registerAdminSettings = require('./handlers/admin/settings');
+const registerBuyerNavigation = require('./handlers/buyer/navigation');
 
 if (!config.botToken) {
   logger.error('BOT_TOKEN missing in .env file! Exiting process...');
@@ -57,11 +58,29 @@ async function bootstrap() {
   registerAdminAnalytics(bot);
   registerAdminHome(bot);
   registerAdminSettings(bot);
+  registerBuyerNavigation(bot);
 
   // Launch Bot
   bot.launch()
     .then(() => {
       logger.info('🚀 AssetFlow Bot is online and listening!');
+      
+      // Automated Performance Summary (every 24 hours)
+      setInterval(async () => {
+        const admins = await dbService.getAllAdmins();
+        const analytics = await dbService.getSalesAnalytics();
+        const msg = 
+          `📊 **Daily Performance Summary**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `👥 **Total Users:** ${analytics.totalUsers}\n` +
+          `💰 **Total Deposited:** $${Number(analytics.totalDeposited).toFixed(2)}\n` +
+          `🛍️ **Total Orders:** ${analytics.totalOrders}\n` +
+          `📉 **Low Stock Products:** ${analytics.outOfStockCount}`;
+        
+        for (const admin of admins) {
+          bot.telegram.sendMessage(admin.telegram_id, msg, { parse_mode: 'Markdown' }).catch(e => logger.error('Failed to send daily summary:', e));
+        }
+      }, 24 * 60 * 60 * 1000);
     })
     .catch((err) => {
       logger.error('Failed to launch Telegraf bot:', err.message);

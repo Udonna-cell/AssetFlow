@@ -3,10 +3,12 @@ const dbService = require('../../database/dbService');
 const jsonEngine = require('../../database/jsonEngine');
 const logger = require('../../utils/logger');
 const config = require('../../config');
+const buyerNavigation = require('../../utils/buyerNavigation');
 
 module.exports = (bot) => {
   // 1. BUY NOW HANDLER
   bot.action(/^prod_buy_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'prod_buy_' + ctx.match[1]);
     const productId = ctx.match[1];
     const userId = ctx.from.id;
 
@@ -37,7 +39,7 @@ module.exports = (bot) => {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
             [Markup.button.callback('💳 Top-Up Wallet Now', 'buyer_deposit')],
-            [Markup.button.callback('🔙 Back to Product', `prod_view_${productId}`)]
+            [Markup.button.callback('🔙 Back', 'buyer_back')]
           ])
         }
       ).catch(() => {});
@@ -52,7 +54,7 @@ module.exports = (bot) => {
         `🔴 **Item Out of Stock**\n\nThis item just sold out. Please check back later or choose another product.`,
         {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('🛒 Back to Marketplace', 'buyer_catalog')]])
+          ...Markup.inlineKeyboard([[Markup.button.callback('🛒 Back', 'buyer_back')]])
         }
       ).catch(() => {});
     }
@@ -61,12 +63,20 @@ module.exports = (bot) => {
       return ctx.answerCbQuery('⚠️ Insufficient wallet balance!', { show_alert: true }).catch(() => {});
     }
 
-    // Check if item depleted
+    // Check if item depleted or low stock
     const updatedProduct = await dbService.getProductById(productId);
+    const admins = await dbService.getAllAdmins();
+
     if (updatedProduct.stock_count === 0) {
-      config.adminIds.forEach(adminId => {
+      admins.forEach(adminId => {
         bot.telegram.sendMessage(adminId, `⚠️ **STOCK DEPLETED**\nProduct "${updatedProduct.title}" is now out of stock.`).catch((err) => {
           logger.error(`Failed to alert admin ${adminId} of stock depletion:`, err.message);
+        });
+      });
+    } else if (updatedProduct.stock_count <= (updatedProduct.low_stock_threshold || 5)) {
+      admins.forEach(adminId => {
+        bot.telegram.sendMessage(adminId, `⚠️ **LOW STOCK ALERT**\nProduct "${updatedProduct.title}" has low stock: \`${updatedProduct.stock_count}\` remaining (Threshold: ${updatedProduct.low_stock_threshold || 5}).`).catch((err) => {
+          logger.error(`Failed to alert admin ${adminId} of low stock:`, err.message);
         });
       });
     }
@@ -92,13 +102,14 @@ module.exports = (bot) => {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('📦 Open Order Vault', 'buyer_orders')],
-        [Markup.button.callback('🛒 Continue Shopping', 'buyer_catalog')]
+        [Markup.button.callback('🛒 Back', 'buyer_back')]
       ])
     }).catch(() => {});
   });
 
   // 2. ORDER VAULT (MY PURCHASES)
   bot.action('buyer_orders', async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_orders');
     ctx.answerCbQuery().catch(() => {});
     const userId = ctx.from.id;
     const db = jsonEngine.read();
@@ -111,7 +122,7 @@ module.exports = (bot) => {
         `You have not made any purchases yet!`,
         {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('🛒 Browse Marketplace', 'buyer_catalog')]])
+          ...Markup.inlineKeyboard([[Markup.button.callback('🛒 Back', 'buyer_back')]])
         }
       ).catch(() => {});
     }
@@ -137,7 +148,7 @@ module.exports = (bot) => {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
         [Markup.button.callback('🛒 Browse Market', 'buyer_catalog')],
-        [Markup.button.callback('🏠 Main Menu', 'home_menu')]
+        [Markup.button.callback('🏠 Back', 'buyer_back')]
       ])
     }).catch(() => {});
   });

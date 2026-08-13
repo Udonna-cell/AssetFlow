@@ -12,4 +12,5 @@ module.exports = (bot) => {
   bot.action('admin_top_buyers', adminHomeHandlers.topBuyers);
   bot.action('admin_export_db', adminHomeHandlers.exportDatabaseAction);
   bot.action('admin_home', adminHomeHandlers.backToHome);
+  bot.action('admin_back', adminHomeHandlers.adminBack);
 };

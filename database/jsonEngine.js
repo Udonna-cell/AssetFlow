@@ -19,7 +19,8 @@ class JsonEngine {
         stockItems: [],
         deposits: [],
         orders: [],
-        tickets: []
+        tickets: [],
+        broadcast_templates: []
       };
       fsSync.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
     }
@@ -45,6 +46,34 @@ class JsonEngine {
       logger.error('Writing to JSON fallback file failed:', err.message);
       return false;
     }
+  }
+
+  // --- Broadcast Templates Helper Methods ---
+  async getBroadcastTemplates() {
+    const db = await this.read();
+    return db.broadcast_templates || [];
+  }
+
+  async saveBroadcastTemplate(templateData) {
+    const db = await this.read();
+    db.broadcast_templates = db.broadcast_templates || [];
+    const id = templateData.id || (Math.max(...db.broadcast_templates.map(t => Number(t.id)), 0) + 1);
+    
+    const index = db.broadcast_templates.findIndex(t => Number(t.id) === Number(id));
+    if (index > -1) {
+      db.broadcast_templates[index] = { ...db.broadcast_templates[index], ...templateData, id };
+    } else {
+      db.broadcast_templates.push({ ...templateData, id });
+    }
+    await this.write(db);
+    return { ...templateData, id };
+  }
+
+  async deleteBroadcastTemplate(templateId) {
+    const db = await this.read();
+    db.broadcast_templates = (db.broadcast_templates || []).filter(t => Number(t.id) !== Number(templateId));
+    await this.write(db);
+    return true;
   }
 
   // --- User Helper Methods ---

@@ -2,12 +2,14 @@ const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
 const config = require('../../config');
+const buyerNavigation = require('../../utils/buyerNavigation');
 
 const userDepositSessions = new Map();
 
 module.exports = (bot) => {
   // 1. Initiate Deposit Flow
   bot.action('buyer_deposit', async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_deposit');
     const text = 
       `💳 **Wallet Top-Up (Automated Gateway)**\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -24,7 +26,7 @@ module.exports = (bot) => {
         Markup.button.callback('$100', 'dep_preset_100'),
         Markup.button.callback('$250', 'dep_preset_250')
       ],
-      [Markup.button.callback('🏠 Return to Main Menu', 'home_menu')]
+      [Markup.button.callback('🏠 Back', 'buyer_back')]
     ]);
 
     userDepositSessions.set(ctx.from.id, { step: 'AWAITING_AMOUNT' });
@@ -39,6 +41,7 @@ module.exports = (bot) => {
   const presets = [10, 25, 50, 100, 250];
   presets.forEach((amount) => {
     bot.action(`dep_preset_${amount}`, async (ctx) => {
+      buyerNavigation.push(ctx, 'dep_preset_' + amount);
       userDepositSessions.delete(ctx.from.id);
       if (amount < 2) {
         return ctx.answerCbQuery('⚠️ Minimum deposit amount is $2.', { show_alert: true }).catch(() => {});
@@ -78,6 +81,7 @@ module.exports = (bot) => {
 
   // 4. Buyer Clicks "I Have Completed Payment"
   bot.action(/^buyer_paid_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_paid_' + ctx.match[1]);
     const depositId = ctx.match[1];
     await ctx.answerCbQuery('Payment claim submitted! Scanning ledger...');
 
@@ -89,7 +93,7 @@ module.exports = (bot) => {
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('🔄 Refresh Status', `buyer_check_status_${depositId}`)],
-      [Markup.button.callback('🏠 Return to Home Menu', 'home_menu')]
+      [Markup.button.callback('🏠 Back', 'buyer_back')]
     ]);
 
     await ctx.editMessageText(verificationText, { parse_mode: 'Markdown', ...keyboard }).catch(() => {});
@@ -99,6 +103,7 @@ module.exports = (bot) => {
 
   // 5. Buyer Checks Payment Status
   bot.action(/^buyer_check_status_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_check_status_' + ctx.match[1]);
     const depositId = ctx.match[1];
     const deposit = await dbService.getDepositById(depositId);
 
@@ -129,6 +134,7 @@ module.exports = (bot) => {
     ctx.answerCbQuery('Still pending verification... Please wait a moment.');
   });
 };
+
 
 // --- Notifications to Admin Dashboard ---
 const { BANK_PRESETS } = require('../admin/deposits');

@@ -1,12 +1,14 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
+const adminNavigation = require('../../utils/adminNavigation');
 
 const adminSupportSessions = new Map();
 
 module.exports = (bot) => {
   // 1. Direct Reply Action
   bot.action(/^admin_reply_ticket_(\d+)_(\d+)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_reply_ticket_' + ctx.match[1] + '_' + ctx.match[2]);
     ctx.answerCbQuery().catch(() => {});
     const ticketId = ctx.match[1];
     const buyerId = ctx.match[2];
@@ -20,6 +22,7 @@ module.exports = (bot) => {
 
   // 2. Initiate Refund Flow from Support Ping
   bot.action(/^admin_refund_ticket_(\d+)_(\d+)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_refund_ticket_' + ctx.match[1] + '_' + ctx.match[2]);
     ctx.answerCbQuery().catch(() => {});
     const ticketId = ctx.match[1];
     const buyerId = ctx.match[2];
@@ -110,6 +113,7 @@ module.exports = (bot) => {
 
   // 4. Close Ticket Action
   bot.action(/^admin_close_ticket_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_close_ticket_' + ctx.match[1]);
     ctx.answerCbQuery('Ticket closed.').catch(() => {});
     const ticketId = ctx.match[1];
     await dbService.updateTicketStatus(ticketId, 'closed');

@@ -1,26 +1,29 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const { escapeMarkdown } = require('../../utils/telegram');
+const buyerNavigation = require('../../utils/buyerNavigation');
 
 module.exports = (bot) => {
   bot.action('buyer_catalog', async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_catalog');
     ctx.answerCbQuery().catch(() => {});
     const categories = await dbService.getCategories();
 
     if (!categories || categories.length === 0) {
       const emptyText = `🛒 **AssetFlow Marketplace**\n━━━━━━━━━━━━━━━━━━━━\nNo active categories available right now.`;
-      const emptyKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🏠 Home', 'home_menu')]]);
+      const emptyKeyboard = Markup.inlineKeyboard([[Markup.button.callback('🏠 Back', 'buyer_back')]]);
       return ctx.editMessageText(emptyText, { parse_mode: 'Markdown', ...emptyKeyboard }).catch(() => {});
     }
 
     const text = `🛒 **AssetFlow Marketplace Catalog**\nSelect a category to browse:`;
     const buttons = categories.map(cat => [Markup.button.callback(`📁 ${escapeMarkdown(cat.name)}`, `cat_view_${cat.id}`)]);
-    buttons.push([Markup.button.callback('🏠 Back to Home', 'home_menu')]);
+    buttons.push([Markup.button.callback('🏠 Back', 'buyer_back')]);
 
     return ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }).catch(() => {});
   });
 
   bot.action(/^cat_view_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'cat_view_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     const categoryId = ctx.match[1];
     const products = await dbService.getProductsByCategory(categoryId);
@@ -28,7 +31,7 @@ module.exports = (bot) => {
     if (!products || products.length === 0) {
       return ctx.editMessageText(`📁 **Category Products**\n\nNo products available here.`, {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Back to Categories', 'buyer_catalog')]])
+        ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Back', 'buyer_back')]])
       }).catch(() => {});
     }
 
@@ -39,7 +42,7 @@ module.exports = (bot) => {
         `prod_view_${prod.id}`
       )
     ]);
-    buttons.push([Markup.button.callback('🔙 Back to Categories', 'buyer_catalog')]);
+    buttons.push([Markup.button.callback('🔙 Back', 'buyer_back')]);
 
     return ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }).catch(() => {});
   });
@@ -83,24 +86,27 @@ module.exports = (bot) => {
 
     keyboardButtons.push([
       Markup.button.callback(isFav ? '💔 Remove Favorite' : '❤️ Add to Favorites', `fav_toggle_${product.id}`),
-      Markup.button.callback('🔙 Category List', `cat_view_${product.category_id}`)
+      Markup.button.callback('🔙 Back', 'buyer_back')
     ]);
 
     return ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(keyboardButtons) }).catch(() => {});
   }
 
   bot.action(/^prod_view_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'prod_view_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     await renderProductView(ctx, ctx.match[1]);
   });
 
   bot.action(/^fav_toggle_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'fav_toggle_' + ctx.match[1]);
     const { isAdded } = await dbService.toggleUserFavorite(ctx.from.id, ctx.match[1]);
     ctx.answerCbQuery(isAdded ? '❤️ Added to Favorites!' : '💔 Removed from Favorites.').catch(() => {});
     await renderProductView(ctx, ctx.match[1]);
   });
 
   bot.action(/^sub_restock_(\d+)$/, async (ctx) => {
+    buyerNavigation.push(ctx, 'sub_restock_' + ctx.match[1]);
     const isSubbed = await dbService.toggleRestockSubscription(ctx.match[1], ctx.from.id);
     ctx.answerCbQuery(isSubbed ? '🔔 Restock alert enabled for this product!' : '🔕 Restock alert disabled.').catch(() => {});
   });

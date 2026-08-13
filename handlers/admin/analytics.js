@@ -1,8 +1,10 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
+const adminNavigation = require('../../utils/adminNavigation');
 
 module.exports = (bot) => {
   bot.action('admin_analytics', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_analytics');
     ctx.answerCbQuery().catch(() => {});
 
     const stats = await dbService.getSalesAnalytics();
@@ -40,7 +42,7 @@ module.exports = (bot) => {
         Markup.button.callback('🔄 Refresh Analytics', 'admin_analytics'),
         Markup.button.callback('📥 Refill Out of Stock', 'admin_refill_stock')
       ],
-      [Markup.button.callback('🏠 Admin Dashboard', 'home_menu')]
+      [Markup.button.callback('🏠 Admin Dashboard', 'admin_back')]
     ]);
 
     return ctx.editMessageText(reportText, {

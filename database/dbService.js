@@ -707,6 +707,46 @@ class DatabaseService {
     return allProducts.filter(p => favIds.includes(Number(p.id)));
   }
 
+  // --- BROADCAST TEMPLATES ---
+  async getBroadcastTemplates() {
+    if (this.isPrimaryConnected) {
+      try {
+        const [rows] = await this.pool.execute('SELECT * FROM broadcast_templates ORDER BY id DESC');
+        return rows;
+      } catch (err) {
+        logger.error('MySQL getBroadcastTemplates failed:', err.message);
+        throw err;
+      }
+    }
+    return await jsonEngine.getBroadcastTemplates();
+  }
+
+  async createBroadcastTemplate(title, content) {
+    if (this.isPrimaryConnected) {
+      try {
+        const [res] = await this.pool.execute('INSERT INTO broadcast_templates (title, content) VALUES (?, ?)', [title, content]);
+        return { id: res.insertId, title, content };
+      } catch (err) {
+        logger.error('MySQL createBroadcastTemplate failed:', err.message);
+        throw err;
+      }
+    }
+    return await jsonEngine.saveBroadcastTemplate({ title, content });
+  }
+
+  async deleteBroadcastTemplate(templateId) {
+    if (this.isPrimaryConnected) {
+      try {
+        await this.pool.execute('DELETE FROM broadcast_templates WHERE id = ?', [templateId]);
+        return true;
+      } catch (err) {
+        logger.error('MySQL deleteBroadcastTemplate failed:', err.message);
+        throw err;
+      }
+    }
+    return await jsonEngine.deleteBroadcastTemplate(templateId);
+  }
+
   // --- ANALYTICS ---
   async getSalesAnalytics() {
     if (this.isPrimaryConnected) {
@@ -765,15 +805,29 @@ class DatabaseService {
     };
   }
 
+  async getAllAdmins() {
+    if (this.isPrimaryConnected) {
+      try {
+        const [rows] = await this.pool.execute('SELECT telegram_id FROM users WHERE role = "admin"');
+        return rows.map(r => r.telegram_id);
+      } catch (err) {
+        logger.error('MySQL getAllAdmins failed:', err.message);
+        throw err;
+      }
+    }
+    const db = await jsonEngine.read();
+    return (db.users || []).filter(u => u.role === 'admin').map(u => u.telegram_id);
+  }
+
   async updateProduct(productId, updates) {
     const pId = Number(productId);
-    const { title, price, description } = updates;
+    const { title, price, description, low_stock_threshold } = updates;
 
     if (this.isPrimaryConnected) {
       try {
         await this.pool.execute(
-          'UPDATE products SET title = ?, price = ?, description = ? WHERE id = ?',
-          [title, price, description, pId]
+          'UPDATE products SET title = ?, price = ?, description = ?, low_stock_threshold = ? WHERE id = ?',
+          [title, price, description, low_stock_threshold, pId]
         );
         return true;
       } catch (err) {
@@ -788,6 +842,7 @@ class DatabaseService {
       if (title) product.title = title;
       if (price) product.price = Number(price);
       if (description) product.description = description;
+      if (low_stock_threshold !== undefined) product.low_stock_threshold = Number(low_stock_threshold);
       await jsonEngine.write(db);
       return true;
     }

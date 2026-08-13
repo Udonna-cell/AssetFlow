@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
 const config = require('../../config');
+const adminNavigation = require('../../utils/adminNavigation');
 
 // Session store for multi-step admin creation wizards
 const adminSessions = new Map();
@@ -9,6 +10,7 @@ const adminSessions = new Map();
 module.exports = (bot) => {
   // 1. Admin Inventory Dashboard
   bot.action('admin_inventory', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_inventory');
     ctx.answerCbQuery().catch(() => {});
     adminSessions.delete(ctx.from.id); // Clear lingering wizard sessions
 
@@ -36,7 +38,7 @@ module.exports = (bot) => {
           Markup.button.callback('✏️ Edit Product', 'admin_edit_prod_list'),
           Markup.button.callback('🗑️ Remove Category / Product', 'admin_delete_menu')
         ],
-        [Markup.button.callback('🏠 Admin Home', 'home_menu')]
+        [Markup.button.callback('🏠 Admin Home', 'admin_back')]
       ]);
 
       if (ctx.callbackQuery) {
@@ -53,6 +55,7 @@ module.exports = (bot) => {
   // 2. ADD CATEGORY WIZARD
   // -------------------------------------------------------------
   bot.action('admin_add_category', (ctx) => {
+    adminNavigation.push(ctx, 'admin_add_category');
     ctx.answerCbQuery().catch(() => {});
     adminSessions.set(ctx.from.id, { step: 'ADD_CATEGORY_NAME' });
 
@@ -67,6 +70,7 @@ module.exports = (bot) => {
   // 3. ADD PRODUCT WIZARD
   // -------------------------------------------------------------
   bot.action('admin_add_product', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_add_product');
     ctx.answerCbQuery().catch(() => {});
     const categories = await dbService.getCategories();
 
@@ -96,6 +100,7 @@ module.exports = (bot) => {
 
   // Select Category for Product Creation
   bot.action(/^admin_select_cat_(\d+)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_select_cat_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     const categoryId = ctx.match[1];
     adminSessions.set(ctx.from.id, { step: 'ADD_PROD_TITLE', categoryId });
@@ -111,6 +116,7 @@ module.exports = (bot) => {
   // 5. REFILL STOCK WIZARDS
   // -------------------------------------------------------------
   bot.action('admin_view_stock', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_view_stock');
     ctx.answerCbQuery().catch(() => {});
     const products = await dbService.getAllProducts();
 
@@ -136,6 +142,7 @@ module.exports = (bot) => {
   // 6. DELETE CATEGORY / PRODUCT
   // -------------------------------------------------------------
   bot.action('admin_delete_menu', (ctx) => {
+    adminNavigation.push(ctx, 'admin_delete_menu');
     ctx.answerCbQuery().catch(() => {});
     ctx.editMessageText(
       `🗑️ **What would you like to delete?**`,
@@ -151,6 +158,7 @@ module.exports = (bot) => {
   });
 
   bot.action('admin_list_del_cat', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_list_del_cat');
     ctx.answerCbQuery().catch(() => {});
     const categories = await dbService.getCategories();
     if (!categories || categories.length === 0) return ctx.reply('⚠️ No categories.');
@@ -162,6 +170,7 @@ module.exports = (bot) => {
   });
 
   bot.action(/^admin_del_cat_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_del_cat_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     await dbService.deleteCategory(ctx.match[1]);
     ctx.reply('✅ Category deleted.');
@@ -169,6 +178,7 @@ module.exports = (bot) => {
   });
 
   bot.action('admin_edit_prod_list', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_edit_prod_list');
     ctx.answerCbQuery().catch(() => {});
     const products = await dbService.getAllProducts();
     if (!products || products.length === 0) return ctx.reply('⚠️ No products.');
@@ -180,6 +190,7 @@ module.exports = (bot) => {
   });
 
   bot.action(/^admin_edit_prod_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_edit_prod_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     const productId = ctx.match[1];
     const product = await dbService.getProductById(productId);
@@ -192,30 +203,34 @@ module.exports = (bot) => {
       `Current Details:\n` +
       `• Title: ${product.title}\n` +
       `• Price: $${product.price}\n` +
-      `• Description: ${product.description || 'None'}\n\n` +
+      `• Description: ${product.description || 'None'}\n` +
+      `• Low Stock Threshold: ${product.low_stock_threshold}\n\n` +
       `What would you like to edit?`,
       Markup.inlineKeyboard([
         [Markup.button.callback('📝 Title', `admin_edit_field_${productId}_title`)],
         [Markup.button.callback('💵 Price', `admin_edit_field_${productId}_price`)],
         [Markup.button.callback('📝 Description', `admin_edit_field_${productId}_description`)],
+        [Markup.button.callback('⚠️ Low Stock Threshold', `admin_edit_field_${productId}_low_stock_threshold`)],
         [Markup.button.callback('🔙 Back', 'admin_edit_prod_list')]
       ])
     );
   });
 
-  bot.action(/^admin_edit_field_(\d+)_(title|price|description)$/, (ctx) => {
+  bot.action(/^admin_edit_field_(\d+)_(title|price|description|low_stock_threshold)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_edit_field_' + ctx.match[1] + '_' + ctx.match[2]);
     ctx.answerCbQuery().catch(() => {});
     const productId = ctx.match[1];
     const field = ctx.match[2];
     adminSessions.set(ctx.from.id, { step: 'EDIT_PROD_INPUT', productId, field });
 
     ctx.replyWithMarkdown(
-      `Enter the new ${field} for the product:`,
+      `Enter the new ${field.replace(/_/g, ' ')} for the product:`,
       Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'admin_inventory')]])
     );
   });
 
   bot.action('admin_list_del_prod', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_list_del_prod');
     ctx.answerCbQuery().catch(() => {});
     const products = await dbService.getAllProducts();
     if (!products || products.length === 0) return ctx.reply('⚠️ No products.');
@@ -227,6 +242,7 @@ module.exports = (bot) => {
   });
 
   bot.action(/^admin_del_prod_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_del_prod_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     await dbService.deleteProduct(ctx.match[1]);
     ctx.reply('✅ Product deleted.');
@@ -234,6 +250,7 @@ module.exports = (bot) => {
   });
 
   bot.action('admin_refill_stock', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_refill_stock');
     ctx.answerCbQuery().catch(() => {});
     const products = await dbService.getAllProducts();
     if (!products || products.length === 0) {
@@ -255,6 +272,7 @@ module.exports = (bot) => {
   });
 
   bot.action(/^admin_refill_prod_(\d+)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_refill_prod_' + ctx.match[1]);
     ctx.answerCbQuery().catch(() => {});
     const productId = ctx.match[1];
     adminSessions.set(ctx.from.id, { step: 'REFILL_CREDENTIALS', productId });
@@ -380,15 +398,22 @@ module.exports = (bot) => {
     if (session.step === 'EDIT_PROD_INPUT') {
       const newValue = ctx.message.text.trim();
       const updates = {};
-      updates[session.field] = session.field === 'price' ? parseFloat(newValue) : newValue;
       
-      if (session.field === 'price' && isNaN(updates.price)) return ctx.reply('⚠️ Invalid price.');
-
+      if (session.field === 'price') {
+        updates.price = parseFloat(newValue);
+        if (isNaN(updates.price)) return ctx.reply('⚠️ Invalid price.');
+      } else if (session.field === 'low_stock_threshold') {
+        updates.low_stock_threshold = parseInt(newValue);
+        if (isNaN(updates.low_stock_threshold)) return ctx.reply('⚠️ Invalid threshold.');
+      } else {
+        updates[session.field] = newValue;
+      }
+      
       await dbService.updateProduct(session.productId, updates);
       adminSessions.delete(ctx.from.id);
 
       return ctx.replyWithMarkdown(
-        `✅ Successfully updated **${session.field}**!`,
+        `✅ Successfully updated **${session.field.replace(/_/g, ' ')}**!`,
         Markup.inlineKeyboard([[Markup.button.callback('📦 Inventory Menu', 'admin_inventory')]])
       );
     }

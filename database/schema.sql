@@ -27,7 +27,14 @@ CREATE TABLE IF NOT EXISTS products (
   description TEXT,
   warranty_hours INT DEFAULT 24,
   likes_count INT DEFAULT 0,
+  low_stock_threshold INT DEFAULT 5,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS broadcast_templates (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stock_items (

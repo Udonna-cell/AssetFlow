@@ -1,8 +1,10 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
+const buyerNavigation = require('../../utils/buyerNavigation');
 
 module.exports = (bot) => {
   bot.action('buyer_referral', async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_referral');
     ctx.answerCbQuery().catch(() => {});
     const user = await dbService.getUser(ctx.from.id);
     const botInfo = await bot.telegram.getMe();
@@ -21,7 +23,7 @@ module.exports = (bot) => {
       `💡 *Earn 5% commission directly into your wallet balance whenever users you invite complete a purchase!*`;
 
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🏠 Back to Home', 'home_menu')]
+      [Markup.button.callback('🏠 Back', 'buyer_back')]
     ]);
 
     return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard }).catch(() => {});

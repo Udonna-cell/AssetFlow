@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
 const config = require('../../config');
+const adminNavigation = require('../../utils/adminNavigation');
 
 // Using a simple Map for admin interaction sessions
 const adminSettingsSessions = new Map();
@@ -11,6 +12,7 @@ const DB_KEYS = ['host', 'user', 'password', 'database', 'port'];
 module.exports = (bot) => {
   // Main Settings Menu
   bot.action('admin_settings', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_settings');
     ctx.answerCbQuery().catch(() => {});
     
     return ctx.editMessageText(
@@ -22,7 +24,7 @@ module.exports = (bot) => {
         ...Markup.inlineKeyboard([
           [Markup.button.callback('🗄️ Database Settings', 'admin_settings_db')],
           [Markup.button.callback('👥 Manage Admins', 'admin_settings_admins')],
-          [Markup.button.callback('🏠 Back to Home', 'admin_home')]
+          [Markup.button.callback('🏠 Back to Home', 'admin_back')]
         ])
       }
     ).catch(() => {});
@@ -30,6 +32,7 @@ module.exports = (bot) => {
 
   // DB settings management
   bot.action('admin_settings_db', async (ctx) => {
+      adminNavigation.push(ctx, 'admin_settings_db');
       ctx.answerCbQuery().catch(() => {});
       
       let text = `🗄️ **Database Settings**\n━━━━━━━━━━━━━━━━━━━━\n`;
@@ -43,13 +46,14 @@ module.exports = (bot) => {
         keyboard.push([Markup.button.callback(`✏️ Edit ${key.toUpperCase()}`, `edit_db_${key}`)]);
       }
       
-      keyboard.push([Markup.button.callback('🔙 Back to Settings', 'admin_settings')]);
+      keyboard.push([Markup.button.callback('🔙 Back to Settings', 'admin_back')]);
 
       ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(keyboard) }).catch(() => {});
   });
 
   // Handle editing specific keys
   bot.action(/^edit_db_(.+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'edit_db_' + ctx.match[1]);
     const key = ctx.match[1];
     ctx.answerCbQuery(`Enter new value for ${key.toUpperCase()}:`).catch(() => {});
     
@@ -59,6 +63,7 @@ module.exports = (bot) => {
 
   // Admin management
   bot.action('admin_settings_admins', async (ctx) => {
+      adminNavigation.push(ctx, 'admin_settings_admins');
       ctx.answerCbQuery().catch(() => {});
       
       const adminIdsStr = await dbService.getSetting('admin_ids') || config.adminIds.join(',');
@@ -74,18 +79,20 @@ module.exports = (bot) => {
         ...Markup.inlineKeyboard([
           [Markup.button.callback('➕ Add Admin', 'admin_add_admin')],
           [Markup.button.callback('➖ Remove Admin', 'admin_remove_admin')],
-          [Markup.button.callback('🔙 Back to Settings', 'admin_settings')]
+          [Markup.button.callback('🔙 Back to Settings', 'admin_back')]
         ])
       }).catch(() => {});
   });
 
   bot.action('admin_add_admin', (ctx) => {
+      adminNavigation.push(ctx, 'admin_add_admin');
       ctx.answerCbQuery('Enter new admin Telegram ID:').catch(() => {});
       adminSettingsSessions.set(ctx.from.id, { step: 'AWAIT_ADD_ADMIN' });
       ctx.reply('✏️ Enter the Telegram ID of the new admin:');
   });
 
   bot.action('admin_remove_admin', (ctx) => {
+      adminNavigation.push(ctx, 'admin_remove_admin');
       ctx.answerCbQuery('Enter admin Telegram ID to remove:').catch(() => {});
       adminSettingsSessions.set(ctx.from.id, { step: 'AWAIT_REMOVE_ADMIN' });
       ctx.reply('✏️ Enter the Telegram ID of the admin to remove:');

@@ -2,25 +2,155 @@ const { Markup } = require('telegraf');
 const UserModel = require('../../models/User');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
+const adminNavigation = require('../../utils/adminNavigation');
 
 const broadcastSessions = new Map();
 
 module.exports = (bot) => {
   // 1. Mass Broadcast Menu
   bot.action('admin_broadcast', (ctx) => {
-    broadcastSessions.set(ctx.from.id, { step: 'AWAIT_BROADCAST_TEXT' });
-
+    adminNavigation.push(ctx, 'admin_broadcast');
     ctx.reply(
-      `📢 **Global Announcement Broadcast**\n` +
+      `📢 **Broadcast Management**\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `Choose an option:`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('🚀 Send New Broadcast', 'admin_broadcast_new')],
+        [Markup.button.callback('📋 Manage Templates', 'admin_broadcast_templates')],
+        [Markup.button.callback('❌ Cancel', 'admin_back')]
+      ])
+    );
+  });
+
+  bot.action('admin_broadcast_new', (ctx) => {
+    adminNavigation.push(ctx, 'admin_broadcast_new');
+    broadcastSessions.set(ctx.from.id, { step: 'AWAIT_BROADCAST_TEXT' });
+    ctx.reply(
+      `📢 **New Broadcast**\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
       `Send the message text/formatting you want to send to **ALL registered buyers**:\n\n` +
       `*(Supports Markdown formatting)*`,
-      Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'home_menu')]])
+      Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'admin_back')]])
     );
+  });
+
+  // Template Management
+  bot.action('admin_broadcast_templates', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_broadcast_templates');
+    const templates = await dbService.getBroadcastTemplates();
+    const buttons = templates.map(t => [Markup.button.callback(`📋 ${t.title}`, `admin_template_view_${t.id}`)]);
+    buttons.push([Markup.button.callback('➕ Create New Template', 'admin_template_create')]);
+    buttons.push([Markup.button.callback('⬅️ Back', 'admin_back')]);
+
+    ctx.reply(
+      `📋 **Broadcast Templates**\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      (templates.length === 0 ? 'No templates found.' : 'Select a template:'),
+      Markup.inlineKeyboard(buttons)
+    );
+  });
+
+  bot.action(/^admin_template_view_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_template_view_' + ctx.match[1]);
+    const templateId = ctx.match[1];
+    const templates = await dbService.getBroadcastTemplates();
+    const template = templates.find(t => Number(t.id) === Number(templateId));
+    if (!template) return ctx.reply('⚠️ Template not found.');
+
+    ctx.reply(
+      `📋 **Template:** \`${template.title}\`\n\n` +
+      `**Content:**\n${template.content}`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('🚀 Use Template', `admin_template_use_${templateId}`)],
+        [Markup.button.callback('🗑️ Delete', `admin_template_delete_${templateId}`)],
+        [Markup.button.callback('⬅️ Back', 'admin_back')]
+      ])
+    );
+  });
+
+  bot.action(/^admin_template_delete_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_template_delete_' + ctx.match[1]);
+    const templateId = ctx.match[1];
+    await dbService.deleteBroadcastTemplate(templateId);
+    ctx.reply('✅ Template deleted.');
+    // Refresh list
+    ctx.answerCbQuery();
+    bot.dispatch('admin_broadcast_templates', ctx);
+  });
+
+  bot.action('admin_template_create', (ctx) => {
+    adminNavigation.push(ctx, 'admin_template_create');
+    broadcastSessions.set(ctx.from.id, { step: 'AWAIT_TEMPLATE_TITLE' });
+    ctx.reply('✍️ Enter the title for the new template:');
+  });
+
+  bot.action(/^admin_template_use_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_template_use_' + ctx.match[1]);
+    const templateId = ctx.match[1];
+    const templates = await dbService.getBroadcastTemplates();
+    const template = templates.find(t => Number(t.id) === Number(templateId));
+    if (!template) return ctx.reply('⚠️ Template not found.');
+
+    ctx.reply(
+      `🚀 **Confirm Broadcast**\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `Content:\n${template.content}\n\n` +
+      `Send to all users?`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Send Now', `admin_broadcast_confirm_${templateId}`)],
+        [Markup.button.callback('❌ Cancel', 'admin_back')]
+      ])
+    );
+  });
+
+  bot.action(/^admin_broadcast_confirm_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_broadcast_confirm_' + ctx.match[1]);
+    const templateId = ctx.match[1];
+    const templates = await dbService.getBroadcastTemplates();
+    const template = templates.find(t => Number(t.id) === Number(templateId));
+    if (!template) return ctx.reply('⚠️ Template not found.');
+
+    const users = await UserModel.getAll();
+    if (!Array.isArray(users)) {
+        return ctx.reply('⚠️ Failed to load user list.');
+    }
+    
+    let sentCount = 0;
+    let failCount = 0;
+
+    const statusMsg = await ctx.reply(`🔄 Dispatching template broadcast to ${users.length} users...`);
+
+    for (const user of users) {
+        if (!user.telegram_id) continue;
+        try {
+            await bot.telegram.sendMessage(user.telegram_id, `📢 **Announcement**\n\n${template.content}`, {
+                parse_mode: 'Markdown'
+            });
+            sentCount++;
+        } catch (err) {
+            logger.warn(`Failed broadcast to ${user.telegram_id}: ${err.message}`);
+            failCount++;
+        }
+    }
+
+    try {
+        await bot.telegram.editMessageText(
+            ctx.chat.id,
+            statusMsg.message_id,
+            null,
+            `✅ **Template Broadcast Complete!**\n\n` +
+            `📥 **Delivered:** ${sentCount}\n` +
+            `❌ **Failed / Blocked:** ${failCount}`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (err) {
+        logger.error('Failed to update broadcast status message:', err.message);
+    }
   });
 
   // 2. Direct DM / Credit User Menu
   bot.action('admin_direct_msg', (ctx) => {
+    adminNavigation.push(ctx, 'admin_direct_msg');
     broadcastSessions.set(ctx.from.id, { step: 'AWAIT_DIRECT_USER_ID' });
 
     ctx.reply(
@@ -138,17 +268,38 @@ module.exports = (bot) => {
       return;
     }
 
+    // Handling New Template Title
+    if (session.step === 'AWAIT_TEMPLATE_TITLE') {
+        const title = ctx.message.text;
+        broadcastSessions.set(ctx.from.id, { step: 'AWAIT_TEMPLATE_CONTENT', title });
+        ctx.reply('✍️ Enter the content for the template:');
+        return;
+    }
+
+    // Handling New Template Content
+    if (session.step === 'AWAIT_TEMPLATE_CONTENT') {
+        const { title } = session;
+        const content = ctx.message.text;
+        broadcastSessions.delete(ctx.from.id);
+
+        await dbService.createBroadcastTemplate(title, content);
+        ctx.reply('✅ Template created successfully!');
+        return;
+    }
+
     return next();
   });
 
   // Action listeners for Direct DM and Credit steps
   bot.action(/^admin_dm_msg_(\d+)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_dm_msg_' + ctx.match[1]);
     const targetId = ctx.match[1];
     broadcastSessions.set(ctx.from.id, { step: 'AWAIT_DIRECT_PAYLOAD', targetId });
     ctx.reply(`💬 Reply with the message you want to send directly to user \`${targetId}\`:`);
   });
 
   bot.action(/^admin_credit_user_(\d+)$/, (ctx) => {
+    adminNavigation.push(ctx, 'admin_credit_user_' + ctx.match[1]);
     const targetId = ctx.match[1];
     broadcastSessions.set(ctx.from.id, { step: 'AWAIT_CREDIT_AMOUNT', targetId });
     ctx.reply(`💰 Enter the amount ($) to credit to user \`${targetId}\`'s wallet:`);

@@ -1,8 +1,10 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
+const buyerNavigation = require('../../utils/buyerNavigation');
 
 module.exports = (bot) => {
   bot.action('buyer_favorites', async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_favorites');
     ctx.answerCbQuery().catch(() => {});
     const favProducts = await dbService.getFavoriteProducts(ctx.from.id);
 
@@ -16,7 +18,7 @@ module.exports = (bot) => {
           parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([
             [Markup.button.callback('🛒 Browse Marketplace', 'buyer_catalog')],
-            [Markup.button.callback('🏠 Main Menu', 'home_menu')]
+            [Markup.button.callback('🏠 Back', 'buyer_back')]
           ])
         }
       ).catch(() => {});
@@ -30,7 +32,7 @@ module.exports = (bot) => {
       )
     ]);
 
-    buttons.push([Markup.button.callback('🏠 Back to Main Menu', 'home_menu')]);
+    buttons.push([Markup.button.callback('🏠 Back', 'buyer_back')]);
 
     return ctx.editMessageText(text, {
       parse_mode: 'Markdown',

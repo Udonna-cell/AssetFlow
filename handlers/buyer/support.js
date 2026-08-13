@@ -2,12 +2,14 @@ const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
 const config = require('../../config');
+const buyerNavigation = require('../../utils/buyerNavigation');
 
 const buyerSupportSessions = new Map();
 
 module.exports = (bot) => {
   // 1. Buyer Support Main Menu
   bot.action('buyer_support', async (ctx) => {
+    buyerNavigation.push(ctx, 'buyer_support');
     const text = 
       `🎧 **AssetFlow Customer Support**\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -23,7 +25,7 @@ module.exports = (bot) => {
         Markup.button.callback('📝 General Question', 'support_issue_general'),
         Markup.button.callback('❓ FAQs & Guides', 'buyer_faq')
       ],
-      [Markup.button.callback('🏠 Back to Home', 'home_menu')]
+      [Markup.button.callback('🏠 Back', 'buyer_back')]
     ]);
 
     if (ctx.callbackQuery) {
@@ -41,6 +43,7 @@ module.exports = (bot) => {
 
   Object.keys(issueTypes).forEach((actionKey) => {
     bot.action(actionKey, (ctx) => {
+      buyerNavigation.push(ctx, actionKey);
       const categoryName = issueTypes[actionKey];
       buyerSupportSessions.set(ctx.from.id, { step: 'AWAITING_TICKET_MSG', category: categoryName });
 
@@ -52,7 +55,7 @@ module.exports = (bot) => {
 
       return ctx.editMessageText(text, {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'buyer_support')]])
+        ...Markup.inlineKeyboard([[Markup.button.callback('❌ Back', 'buyer_back')]])
       }).catch(() => {});
     });
   });
@@ -65,10 +68,15 @@ module.exports = (bot) => {
     const userMsg = ctx.message.text.trim();
     buyerSupportSessions.delete(ctx.from.id);
 
+    // Smart Support Triage
+    const highPriorityKeywords = ["urgent", "broken", "lost", "fail", "not working", "stuck"];
+    const isHighPriority = highPriorityKeywords.some(keyword => userMsg.toLowerCase().includes(keyword));
+    const finalCategory = isHighPriority ? `[High Priority] ${session.category}` : session.category;
+
     // Save ticket in Database
     const ticket = await dbService.createTicket({
       user_id: ctx.from.id,
-      category: session.category,
+      category: finalCategory,
       message: userMsg,
       status: 'open'
     });
@@ -82,7 +90,7 @@ module.exports = (bot) => {
       `⏱️ *Estimated wait time: ~5–15 minutes.*`;
 
     await ctx.replyWithMarkdown(confirmationText, Markup.inlineKeyboard([
-      [Markup.button.callback('🏠 Return to Home', 'home_menu')]
+      [Markup.button.callback('🏠 Back', 'buyer_back')]
     ]));
 
     // Dispatch Notification to Admins

@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const logger = require('../../utils/logger');
 const config = require('../../config');
+const adminNavigation = require('../../utils/adminNavigation');
 
 const BANK_PRESETS = {
   acc_A: { bank: 'Moniepoint', number: '7044030978', name: 'Udochukwu Stanley Oeabueze' },
@@ -12,6 +13,7 @@ const BANK_PRESETS = {
 const depositsHandler = (bot) => {
   // 1. Pending Deposits Queue View
   bot.action('admin_deposits', async (ctx) => {
+    adminNavigation.push(ctx, 'admin_deposits');
     ctx.answerCbQuery().catch(() => {});
     const pendingDeposits = await dbService.getPendingDeposits();
 
@@ -20,7 +22,7 @@ const depositsHandler = (bot) => {
         `📥 **Pending Deposit Queue**\n━━━━━━━━━━━━━━━━━━━━\nNo pending deposits awaiting action.`,
         {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('🏠 Admin Home', 'home_menu')]])
+          ...Markup.inlineKeyboard([[Markup.button.callback('🏠 Admin Home', 'admin_back')]])
         }
       ).catch(() => {});
     }
@@ -36,7 +38,7 @@ const depositsHandler = (bot) => {
       ]);
     });
 
-    buttons.push([Markup.button.callback('🏠 Admin Home', 'home_menu')]);
+    buttons.push([Markup.button.callback('🏠 Admin Home', 'admin_back')]);
 
     return ctx.editMessageText(text, {
       parse_mode: 'Markdown',
@@ -46,6 +48,7 @@ const depositsHandler = (bot) => {
 
   // 2. Dispatch Selected Bank Preset to Buyer
   bot.action(/^admin_send_acc_(A|B|C)_(\d+)_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_send_acc_' + ctx.match[1] + '_' + ctx.match[2] + '_' + ctx.match[3]);
     ctx.answerCbQuery('Bank details sent to buyer!').catch(() => {});
 
     const presetKey = `acc_${ctx.match[1]}`;
@@ -80,7 +83,7 @@ const depositsHandler = (bot) => {
 
     const buyerKeyboard = Markup.inlineKeyboard([
       [Markup.button.callback('✅ I Have Completed Payment', `buyer_paid_${depositId}`)],
-      [Markup.button.callback('❌ Cancel Deposit', 'home_menu')]
+      [Markup.button.callback('❌ Cancel Deposit', 'admin_back')]
     ]);
 
     bot.telegram.editMessageText(deposit.user_id, buyerMsgId, null, buyerText, {
@@ -93,6 +96,7 @@ const depositsHandler = (bot) => {
 
   // 3. Admin Approves Payment & Credits Wallet
   bot.action(/^admin_approve_dep_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_approve_dep_' + ctx.match[1]);
     ctx.answerCbQuery('Deposit Approved & Credited!').catch(() => {});
 
     const depositId = ctx.match[1];
@@ -124,6 +128,7 @@ const depositsHandler = (bot) => {
 
   // 4. Admin Rejects Payment Request
   bot.action(/^admin_reject_dep_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_reject_dep_' + ctx.match[1]);
     ctx.answerCbQuery('Deposit Rejected.').catch(() => {});
 
     const depositId = ctx.match[1];
@@ -150,6 +155,7 @@ const depositsHandler = (bot) => {
 
   // Cancel Request Action
   bot.action(/^admin_cancel_dep_(\d+)_(\d+)$/, async (ctx) => {
+    adminNavigation.push(ctx, 'admin_cancel_dep_' + ctx.match[1] + '_' + ctx.match[2]);
     ctx.answerCbQuery('Deposit cancelled.').catch(() => {});
 
     const depositId = ctx.match[1];
