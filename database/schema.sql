@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS deposits (
   amount DECIMAL(12, 2) NOT NULL,
   status ENUM('pending_bank', 'pending_verification', 'approved', 'rejected') DEFAULT 'pending_bank',
   bank_details TEXT NULL,
+  paystack_reference VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE
 );

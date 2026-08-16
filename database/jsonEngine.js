@@ -122,7 +122,18 @@ class JsonEngine {
     return deposit;
   }
 
+  async updateDepositReference(depositId, paystackReference) {
+    const db = await this.read();
+    const deposit = db.deposits.find(d => Number(d.id) === Number(depositId));
+    if (deposit) {
+      deposit.paystack_reference = paystackReference;
+      await this.write(db);
+    }
+    return !!deposit;
+  }
+
   async updateUserBalance(telegramId, amount) {
+    logger.info(`JSON: Incrementing balance for user ${telegramId} by ${amount}`);
     const db = await this.read();
     const user = db.users.find(u => Number(u.telegram_id) === Number(telegramId));
     if (user) {

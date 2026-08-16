@@ -134,6 +134,7 @@ class DatabaseService {
   }
 
   async incrementUserBalance(telegramId, amount) {
+    logger.info(`Incrementing balance for user ${telegramId} by ${amount}`);
     if (this.isPrimaryConnected) {
       try {
         await this.pool.execute('UPDATE users SET balance = balance + ? WHERE telegram_id = ?', [ amount, telegramId ]);
@@ -494,20 +495,36 @@ class DatabaseService {
   }
 
   // --- DEPOSITS ---
-  async createDeposit(userId, amount) {
+  async createDeposit(userId, amount, paystackReference = null) {
     if (this.isPrimaryConnected) {
       try {
         const [ result ] = await this.pool.execute(
-          'INSERT INTO deposits (user_id, amount, status) VALUES (?, ?, "pending_bank")',
-          [ userId, amount ]
+          'INSERT INTO deposits (user_id, amount, status, paystack_reference) VALUES (?, ?, "pending_bank", ?)',
+          [ userId, amount, paystackReference ]
         );
-        return { id: result.insertId, user_id: userId, amount, status: 'pending_bank' };
+        return { id: result.insertId, user_id: userId, amount, status: 'pending_bank', paystack_reference: paystackReference };
       } catch (err) {
         logger.error('MySQL createDeposit failed:', err.message);
         throw err;
       }
     }
-    return await jsonEngine.createDeposit({ user_id: userId, amount, status: 'pending_bank' });
+    return await jsonEngine.createDeposit({ user_id: userId, amount, status: 'pending_bank', paystack_reference: paystackReference });
+  }
+
+  async updateDepositReference(depositId, paystackReference) {
+    if (this.isPrimaryConnected) {
+      try {
+        await this.pool.execute(
+          'UPDATE deposits SET paystack_reference = ? WHERE id = ?',
+          [ paystackReference, depositId ]
+        );
+        return true;
+      } catch (err) {
+        logger.error('MySQL updateDepositReference failed:', err.message);
+        throw err;
+      }
+    }
+    return await jsonEngine.updateDepositReference(depositId, paystackReference);
   }
 
   async getDepositById(depositId) {

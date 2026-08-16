@@ -67,16 +67,51 @@ module.exports = (bot) => {
   // Create Deposit Record & Dispatch Masked System Prompt
   async function processDepositRequest(ctx, amount) {
     const userId = ctx.from.id;
+    // Create deposit record WITHOUT reference first
     const deposit = await dbService.createDeposit(userId, amount);
 
-    const loadingText = 
-      `🔄 **Connecting to Secure Payment Gateway...**\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
-      `Generating dedicated payment ledger details for Request #DEP-${deposit.id}...\n\n` +
-      `⏱️ *Please hold on for a moment.*`;
-
+    const loadingText = `🔄 **Generating Payment Link...**`;
     const loadingMsg = await ctx.replyWithMarkdown(loadingText);
-    notifyAdminsNewDeposit(bot, ctx.from, deposit, loadingMsg.message_id);
+
+    try {
+      logger.info('Initializing Paystack');
+      const Paystack = require('@paystack/paystack-sdk');
+      const paystack = new Paystack(process.env.PAYSTACK_SECRET_KEY);
+      
+      const reference = `ref_${userId}_${Date.now()}`;
+      
+      // Convert USD amount to NGN based on rate, then to kobo (* 100)
+      const response = await paystack.transaction.initialize({
+        email: ctx.from.username ? `${ctx.from.username}@telegram.bot` : `${userId}@telegram.bot`,
+        amount: Math.round(amount * config.usdToNgnRate * 100),
+        reference: reference,
+        callback_url: process.env.PAYSTACK_CALLBACK_URL || 'https://t.me/your_bot_username',
+        metadata: { 
+          telegram_id: userId,
+          deposit_id: deposit.id 
+        }
+      });
+
+      if (response.status) {
+        // Now update with the reference
+        await dbService.updateDepositReference(deposit.id, reference);
+
+        await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, null, 
+          `✅ **Deposit #DEP-${deposit.id} Initialized**\n\n` +
+          `Amount: $${amount}\n\n` +
+          `[Click here to complete payment](${response.data.authorization_url})`,
+          { 
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([[Markup.button.callback('✅ I Have Paid', `buyer_paid_${deposit.id}`)]])
+          }
+        );
+      } else {
+        throw new Error('Paystack initialization failed');
+      }
+    } catch (error) {
+      logger.error(`Paystack Error:`, error);
+      await ctx.telegram.editMessageText(ctx.chat.id, loadingMsg.message_id, null, `❌ Failed to initialize payment. Please try again later.`);
+    }
   }
 
   // 4. Buyer Clicks "I Have Completed Payment"
@@ -108,30 +143,38 @@ module.exports = (bot) => {
     const deposit = await dbService.getDepositById(depositId);
 
     if (!deposit) return ctx.answerCbQuery('⚠️ Deposit record not found.');
+    if (deposit.status === 'approved') return ctx.answerCbQuery('🎉 Already credited!');
+    if (deposit.status === 'rejected') return ctx.answerCbQuery('❌ Already rejected.');
+    if (!deposit.paystack_reference) return ctx.answerCbQuery('⚠️ No payment reference found.');
 
-    if (deposit.status === 'approved') {
-      ctx.answerCbQuery('🎉 Payment confirmed and credited!');
-      return ctx.editMessageText(
-        `🎉 **Deposit #DEP-${depositId} Approved!**\n\nYour wallet balance has been credited with **$${deposit.amount}**.`,
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('🛒 Browse Market', 'buyer_catalog')]])
-        }
-      ).catch(() => {});
+    try {
+      logger.info('Initializing Paystack');
+      const Paystack = require('@paystack/paystack-sdk');
+      const paystack = new Paystack(process.env.PAYSTACK_SECRET_KEY);
+      
+      const response = await paystack.transaction.verify(deposit.paystack_reference);
+      logger.info(`Paystack Verify Response: ${JSON.stringify(response)}`);
+
+      if (response.status && response.data.status === 'success') {
+        // Approve deposit and credit user
+        await dbService.updateDepositStatus(depositId, 'approved');
+        await dbService.incrementUserBalance(deposit.user_id, Number(deposit.amount));
+        
+        ctx.answerCbQuery('🎉 Payment confirmed!');
+        return ctx.editMessageText(
+          `🎉 **Deposit #DEP-${depositId} Approved!**\n\nYour wallet balance has been credited with **$${deposit.amount}**.`,
+          {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard([[Markup.button.callback('🛒 Browse Market', 'buyer_catalog')]])
+          }
+        ).catch(() => {});
+      } else {
+        ctx.answerCbQuery('⏳ Payment still pending...');
+      }
+    } catch (error) {
+      logger.error('Paystack Verify Error:', error);
+      ctx.answerCbQuery('Error checking status.');
     }
-
-    if (deposit.status === 'rejected') {
-      ctx.answerCbQuery('❌ Deposit verification failed.');
-      return ctx.editMessageText(
-        `❌ **Deposit #DEP-${depositId} Unsuccessful**\n\nWe could not verify your transfer. If you were debited, please contact support.`,
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('🎧 Customer Support', 'buyer_support')]])
-        }
-      ).catch(() => {});
-    }
-
-    ctx.answerCbQuery('Still pending verification... Please wait a moment.');
   });
 };
 
@@ -176,6 +219,7 @@ async function notifyAdminsClaimedPayment(bot, buyer, depositId) {
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `👤 **Buyer:** @${buyer.username || 'NoUsername'} (${buyer.id})\n` +
     `💵 **Amount:** $${deposit.amount} / ₦${nairaAmount}\n` +
+    `💳 **Ref:** \`${deposit.paystack_reference || 'N/A'}\`\n` +
     `📌 *Buyer clicked "I Have Paid".* Please check your bank app!\n\n` +
     `Confirm approval to credit wallet immediately:`;
 
