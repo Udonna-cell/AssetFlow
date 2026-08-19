@@ -9,7 +9,7 @@ module.exports = {
       database: dbConfig.database,
       port: dbConfig.port,
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: 30,
       queueLimit: 0,
       connectTimeout: dbConfig.connectTimeout
     });

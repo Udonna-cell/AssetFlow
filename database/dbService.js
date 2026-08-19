@@ -36,12 +36,12 @@ class DatabaseService {
   // Helper to execute queries using this.pool
   async execute(sql, params) {
     if (!this.pool) throw new Error('Database not initialized');
-    return this.this.pool.execute(sql, params);
+    return this.pool.execute(sql, params);
   }
   
   async query(sql, params) {
     if (!this.pool) throw new Error('Database not initialized');
-    return this.this.pool.query(sql, params);
+    return this.pool.query(sql, params);
   }
 
   async getConnection() {
@@ -379,7 +379,7 @@ class DatabaseService {
     const finalPrice = rawPrice - (rawPrice * (discountPercent / 100));
 
     if (this.isPrimaryConnected) {
-      const connection = await pool.getConnection();
+      const connection = await this.pool.getConnection();
       try {
         await connection.beginTransaction();
 
@@ -632,7 +632,7 @@ class DatabaseService {
     const refundAmount = Number(amount);
 
     if (this.isPrimaryConnected) {
-      const connection = await pool.getConnection();
+      const connection = await this.pool.getConnection();
       try {
         await connection.beginTransaction();
 
