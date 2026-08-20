@@ -1,5 +1,6 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
+const { formatNumber } = require('../../utils/formatters');
 const adminNavigation = require('../../utils/adminNavigation');
 
 module.exports = (bot) => {
@@ -16,7 +17,7 @@ module.exports = (bot) => {
     let topLikedText = '';
     if (stats.topLikedProducts && stats.topLikedProducts.length > 0) {
       stats.topLikedProducts.forEach((prod, i) => {
-        topLikedText += `   └ #${i + 1} **${prod.title}** (❤️ ${prod.likes_count || 0} likes)\n`;
+        topLikedText += `   └ #${i + 1} **${prod.title}** (❤️ ${formatNumber(prod.likes_count || 0)} likes)\n`;
       });
     } else {
       topLikedText = '   └ *No liked products yet.*\n';

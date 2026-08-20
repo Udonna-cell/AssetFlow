@@ -838,13 +838,29 @@ class DatabaseService {
 
   async updateProduct(productId, updates) {
     const pId = Number(productId);
-    const { title, price, description, low_stock_threshold } = updates;
+    
+    // Fetch the current product to get current values for all fields
+    const currentProduct = await this.getProductById(pId);
+    if (!currentProduct) return false;
+
+    // Merge updates
+    const updatedProduct = { ...currentProduct, ...updates };
+    const { title, price, description, low_stock_threshold, likes_count } = updatedProduct;
 
     if (this.isPrimaryConnected) {
       try {
+        // Sanitize parameters: Ensure no 'undefined' values are passed.
+        // Use null for optional/missing values.
         await this.pool.execute(
-          'UPDATE products SET title = ?, price = ?, description = ?, low_stock_threshold = ? WHERE id = ?',
-          [title, price, description, low_stock_threshold, pId]
+          'UPDATE products SET title = ?, price = ?, description = ?, low_stock_threshold = ?, likes_count = ? WHERE id = ?',
+          [
+            title ?? '', // Title should not be null
+            price ?? 0,
+            description ?? null,
+            low_stock_threshold ?? 0,
+            likes_count ?? 0,
+            pId
+          ]
         );
         return true;
       } catch (err) {
@@ -856,10 +872,11 @@ class DatabaseService {
     const db = await jsonEngine.read();
     const product = (db.products || []).find(p => Number(p.id) === pId);
     if (product) {
-      if (title) product.title = title;
-      if (price) product.price = Number(price);
-      if (description) product.description = description;
-      if (low_stock_threshold !== undefined) product.low_stock_threshold = Number(low_stock_threshold);
+      product.title = title ?? product.title;
+      product.price = Number(price ?? product.price);
+      product.description = description ?? product.description;
+      product.low_stock_threshold = Number(low_stock_threshold ?? product.low_stock_threshold);
+      product.likes_count = Number(likes_count ?? product.likes_count);
       await jsonEngine.write(db);
       return true;
     }

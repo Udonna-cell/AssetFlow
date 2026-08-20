@@ -1,6 +1,7 @@
 const { Markup } = require('telegraf');
 const dbService = require('../../database/dbService');
 const { escapeMarkdown } = require('../../utils/telegram');
+const { formatNumber } = require('../../utils/formatters');
 const buyerNavigation = require('../../utils/buyerNavigation');
 
 module.exports = (bot) => {
@@ -38,7 +39,7 @@ module.exports = (bot) => {
     const text = `🛍️ **Available Items:**\nSelect an item to view specs or buy:`;
     const buttons = products.map(prod => [
       Markup.button.callback(
-        `${escapeMarkdown(prod.title)} — $${Number(prod.price).toFixed(2)} (${prod.stock_count || 0} left | ❤️ ${prod.likes_count || 0})`,
+        `${escapeMarkdown(prod.title)} — $${Number(prod.price).toFixed(2)} (${prod.stock_count || 0} left | ❤️ ${formatNumber(prod.likes_count || 0)})`,
         `prod_view_${prod.id}`
       )
     ]);
@@ -71,7 +72,7 @@ module.exports = (bot) => {
       `⏱️ **Warranty:** \`${product.warranty_hours || 24} Hours\`\n\n` +
       `💵 **Price:** ${priceDisplay}\n` +
       `📊 **In Stock:** \`${stockCount} item(s)\`\n` +
-      `❤️ **Favorites:** \`${product.likes_count || 0} user(s)\`\n\n` +
+      `❤️ **Favorites:** \`${formatNumber(product.likes_count || 0)} user(s)\`\n\n` +
       `💳 **Your Balance:** \`$${Number(user.balance || 0).toFixed(2)}\``;
 
     const keyboardButtons = [];

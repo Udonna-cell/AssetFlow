@@ -204,19 +204,21 @@ module.exports = (bot) => {
       `• Title: ${product.title}\n` +
       `• Price: $${product.price}\n` +
       `• Description: ${product.description || 'None'}\n` +
-      `• Low Stock Threshold: ${product.low_stock_threshold}\n\n` +
+      `• Low Stock Threshold: ${product.low_stock_threshold}\n` +
+      `• Favorites (Likes): ${product.likes_count}\n\n` +
       `What would you like to edit?`,
       Markup.inlineKeyboard([
         [Markup.button.callback('📝 Title', `admin_edit_field_${productId}_title`)],
         [Markup.button.callback('💵 Price', `admin_edit_field_${productId}_price`)],
         [Markup.button.callback('📝 Description', `admin_edit_field_${productId}_description`)],
         [Markup.button.callback('⚠️ Low Stock Threshold', `admin_edit_field_${productId}_low_stock_threshold`)],
+        [Markup.button.callback('❤️ Favorites (Likes)', `admin_edit_field_${productId}_likes_count`)],
         [Markup.button.callback('🔙 Back', 'admin_edit_prod_list')]
       ])
     );
   });
 
-  bot.action(/^admin_edit_field_(\d+)_(title|price|description|low_stock_threshold)$/, (ctx) => {
+  bot.action(/^admin_edit_field_(\d+)_(title|price|description|low_stock_threshold|likes_count)$/, (ctx) => {
     adminNavigation.push(ctx, 'admin_edit_field_' + ctx.match[1] + '_' + ctx.match[2]);
     ctx.answerCbQuery().catch(() => {});
     const productId = ctx.match[1];
@@ -405,6 +407,9 @@ module.exports = (bot) => {
       } else if (session.field === 'low_stock_threshold') {
         updates.low_stock_threshold = parseInt(newValue);
         if (isNaN(updates.low_stock_threshold)) return ctx.reply('⚠️ Invalid threshold.');
+      } else if (session.field === 'likes_count') {
+        updates.likes_count = parseInt(newValue);
+        if (isNaN(updates.likes_count)) return ctx.reply('⚠️ Invalid likes count.');
       } else {
         updates[session.field] = newValue;
       }
