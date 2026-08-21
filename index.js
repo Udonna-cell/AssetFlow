@@ -20,6 +20,8 @@ const registerAdminAnalytics = require('./handlers/admin/analytics');
 const registerAdminHome = require('./handlers/admin/home');
 const registerAdminSettings = require('./handlers/admin/settings');
 const registerBuyerNavigation = require('./handlers/buyer/navigation');
+const registerBuyerSMS = require('./handlers/buyer/sms');
+const { session } = require('telegraf');
 
 if (!config.botToken) {
   logger.error('BOT_TOKEN missing in .env file! Exiting process...');
@@ -41,6 +43,7 @@ async function bootstrap() {
   await config.refresh(dbService);
 
   // Middleware
+  bot.use(session());
   bot.use(authMiddleware);
 
   // Register Handlers
@@ -48,6 +51,7 @@ async function bootstrap() {
   registerBuyerDeposit(bot);
   registerAdminDeposits(bot);
   registerBuyerCatalog(bot);
+  registerBuyerSMS(bot);
   registerAdminInventory(bot);
   registerBuyerSupport(bot);
   registerAdminSupport(bot);

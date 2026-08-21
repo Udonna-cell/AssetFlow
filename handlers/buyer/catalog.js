@@ -18,6 +18,7 @@ module.exports = (bot) => {
 
     const text = `🛒 **AssetFlow Marketplace Catalog**\nSelect a category to browse:`;
     const buttons = categories.map(cat => [Markup.button.callback(`📁 ${escapeMarkdown(cat.name)}`, `cat_view_${cat.id}`)]);
+    buttons.push([Markup.button.callback('📱 Activation Numbers', 'buyer_sms_services')]);
     buttons.push([Markup.button.callback('🏠 Back', 'buyer_back')]);
 
     return ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) }).catch(() => {});

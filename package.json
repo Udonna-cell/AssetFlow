@@ -12,6 +12,8 @@
   "description": "",
   "dependencies": {
     "@paystack/paystack-sdk": "^1.0.1",
+    "awesome-phonenumber": "^7.8.0",
+    "axios": "^1.7.2",
     "dotenv": "^17.4.2",
     "mysql2": "^3.23.2",
     "telegraf": "^4.16.3"

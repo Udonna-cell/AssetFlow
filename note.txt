@@ -1,0 +1,2 @@
+i want you to add this to the market "activation number" and if it is clicked if should bring out the services that are available for now i only need whatsApp. when the service (whatsApp) is selected it should ask the buyer to input the name of the country and if that country is available it should should show the available product price with +1 increase to the price and available stock.
+A button buy now should follow.
