@@ -141,27 +141,36 @@ module.exports = (bot) => {
 
         const [_, activationId, rawPhoneNumber] = response.split(':');
         
-        // 2. Format phone number safely
+        // 2. Format phone number safely (dial code + local number with leading zero removed)
         let formattedDisplay = `\`${rawPhoneNumber}\``; // Default fallback
         try {
-            const phoneToFormat = String(rawPhoneNumber).startsWith('+') ? String(rawPhoneNumber) : `+${String(rawPhoneNumber)}`;
-            
-            // Extreme defense: only attempt formatting if it looks strictly numeric after +
-            if (/^\+\d{7,15}$/.test(phoneToFormat)) {
-                // Try-catch block specifically around library usage
-                try {
-                    const pn = parsePhoneNumber(phoneToFormat);
-
-                    if (pn.valid) {
-                        formattedDisplay = `+${pn.countryCode} \`${pn.number.national}\``;
-                    } else {
-                        logger.warn('Phone number format rejected for formatting:', phoneToFormat);
-                    }
-                } catch (libError) {
-                    logger.warn('Library error, skipping formatting:', libError.message);
+            const dialCode = String(ctx.session?.sms_dial_code || '').replace(/^\+/, '').trim();
+            if (dialCode) {
+                let localNumber = String(rawPhoneNumber);
+                if (localNumber.startsWith(dialCode)) {
+                    localNumber = localNumber.substring(dialCode.length);
                 }
+                localNumber = localNumber.replace(/^0+/, '');
+                formattedDisplay = `+${dialCode} \`${localNumber}\``;
             } else {
-                logger.warn('Phone number format rejected for formatting:', phoneToFormat);
+                // Fallback to library-based formatting if session is missing dial code
+                const phoneToFormat = String(rawPhoneNumber).startsWith('+') ? String(rawPhoneNumber) : `+${String(rawPhoneNumber)}`;
+                if (/^\+\d{7,15}$/.test(phoneToFormat)) {
+                    try {
+                        const pn = parsePhoneNumber(phoneToFormat);
+                        if (pn.valid) {
+                            let nationalNumber = pn.number.national;
+                            nationalNumber = nationalNumber.replace(/^0+/, '');
+                            formattedDisplay = `+${pn.countryCode} \`${nationalNumber}\``;
+                        } else {
+                            logger.warn('Phone number format rejected for formatting fallback:', phoneToFormat);
+                        }
+                    } catch (libError) {
+                        logger.warn('Library error, skipping formatting fallback:', libError.message);
+                    }
+                } else {
+                    logger.warn('Phone number format rejected for formatting fallback:', phoneToFormat);
+                }
             }
         } catch (formatError) {
             logger.error('Error in phone formatting logic:', formatError);
