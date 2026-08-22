@@ -6,7 +6,34 @@ const smsPollingService = require('../../utils/smsPollingService');
 const { escapeMarkdown } = require('../../utils/telegram');
 const { parsePhoneNumber } = require('awesome-phonenumber');
 
+const smsSessions = new Map();
+
 module.exports = (bot) => {
+  async function showCountryDetails(ctx, selectedCountry) {
+      const priceWithIncrease = selectedCountry.price + 1;
+        
+      // Robust session assignment for next step
+      if (!ctx.session) ctx.session = {};
+      ctx.session.sms_country_id = selectedCountry.countryId;
+      ctx.session.sms_country_name = selectedCountry.countryName;
+      ctx.session.sms_dial_code = selectedCountry.dialCode;
+      ctx.session.sms_service = 'wa';
+
+      return ctx.reply(
+          `✅ **Country ${selectedCountry.countryName} selected.**\n\n` +
+          `💰 **Price:** \`$${priceWithIncrease.toFixed(2)}\`\n` +
+          `📊 **Available Stock:** \`${selectedCountry.stock}\`\n\n` +
+          `Ready to purchase?`,
+          {
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([
+                  [Markup.button.callback('⚡ Buy Now', `sms_buy_wa_confirmed_with_increase`)],
+                  [Markup.button.callback('🔙 Back', 'buyer_sms_services')]
+              ])
+          }
+      );
+  }
+
   bot.action('buyer_sms_services', async (ctx) => {
     ctx.answerCbQuery().catch(() => {});
     const text = `📱 **Activation Numbers**\nSelect a service to get started:`;
@@ -19,59 +46,67 @@ module.exports = (bot) => {
 
   bot.action('buyer_sms_service_wa', async (ctx) => {
     ctx.answerCbQuery().catch(() => {});
-    
-    try {
-        const countries = await smsService.getAvailableCountriesForService('wa');
-        if (countries.length === 0) {
-            return ctx.editMessageText(`❌ No WhatsApp numbers available currently.`, {
-                parse_mode: 'Markdown',
-                ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Back', 'buyer_sms_services')]])
-            });
-        }
-        
-        // Present a list of available countries
-        const text = `🌍 **Select Country for WhatsApp**\nChoose one of the available countries below:`;
-        
-        // Sort by price ascending
-        countries.sort((a, b) => a.price - b.price);
-        
-        const buttons = countries.map(c => [
-            Markup.button.callback(`${c.countryName} - $${c.price.toFixed(2)} (${c.stock})`, `sms_country_wa_${c.countryId}`)
-        ]);
-        buttons.push([Markup.button.callback('❌ Cancel', 'buyer_sms_services')]);
-        
-        return ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-    } catch (e) {
-        return ctx.reply(`❌ Error fetching countries: ${e.message}`);
-    }
-  });
-
-  bot.action(/^sms_country_wa_(\d+)$/, async (ctx) => {
-    const countryId = ctx.match[1];
-    ctx.answerCbQuery('Country selected. Proceeding...').catch(() => {});
-    
-    const countries = await smsService.getAvailableCountriesForService('wa');
-    const selectedCountry = countries.find(c => c.countryId === parseInt(countryId));
-    const countryName = selectedCountry ? selectedCountry.countryName : `ID ${countryId}`;
-    const dialCode = selectedCountry ? selectedCountry.dialCode : '';
-
-    // Robust session assignment
-    if (!ctx.session) ctx.session = {};
-    ctx.session.sms_country_id = countryId;
-    ctx.session.sms_country_name = countryName;
-    ctx.session.sms_dial_code = dialCode;
-    ctx.session.sms_service = 'wa';
-    
-    return ctx.editMessageText(`✅ **Country ${countryName} selected.**\nReady to purchase?`, {
+    smsSessions.set(ctx.from.id, { step: 'AWAIT_WA_COUNTRY' });
+    return ctx.editMessageText(`🌍 **WhatsApp Activation**\n\nPlease enter the name of the country:`, {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-            [Markup.button.callback('⚡ Buy Now', `sms_buy_wa_confirmed`)],
-            [Markup.button.callback('🔙 Back', 'buyer_sms_services')]
-        ])
+        ...Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'buyer_sms_services')]])
     });
   });
 
-  bot.action('sms_buy_wa_confirmed', async (ctx) => {
+  // Listen for Country Input
+  bot.on('text', async (ctx, next) => {
+    const session = smsSessions.get(ctx.from.id);
+    if (!session || session.step !== 'AWAIT_WA_COUNTRY') return next();
+
+    const countryInput = ctx.message.text.trim().toLowerCase();
+    smsSessions.delete(ctx.from.id);
+
+    try {
+        const countries = await smsService.getAvailableCountriesForService('wa');
+        const selectedCountry = countries.find(c => c.countryName.toLowerCase() === countryInput);
+
+        if (selectedCountry) {
+            return await showCountryDetails(ctx, selectedCountry);
+        }
+
+        // Suggestions
+        const matches = countries.filter(c => c.countryName.toLowerCase().includes(countryInput));
+        if (matches.length > 0) {
+            const buttons = matches.map(c => [
+                Markup.button.callback(c.countryName, `sms_select_country_${c.countryId}`)
+            ]);
+            buttons.push([Markup.button.callback('❌ Cancel', 'buyer_sms_services')]);
+            return ctx.reply(`❌ Country '${ctx.message.text}' not found. Did you mean?`, {
+                ...Markup.inlineKeyboard(buttons)
+            });
+        }
+
+        return ctx.reply(`❌ Country '${ctx.message.text}' not found or currently unavailable.`, {
+            ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Back', 'buyer_sms_services')]])
+        });
+    } catch (e) {
+        logger.error('Error in WA country lookup:', e);
+        return ctx.reply(`❌ An error occurred while checking availability.`);
+    }
+  });
+
+  bot.action(/^sms_select_country_(\d+)$/, async (ctx) => {
+      ctx.answerCbQuery().catch(() => {});
+      const countryId = parseInt(ctx.match[1]);
+      try {
+          const countries = await smsService.getAvailableCountriesForService('wa');
+          const selectedCountry = countries.find(c => c.countryId === countryId);
+          if (!selectedCountry) {
+              return ctx.reply('❌ Country no longer available.');
+          }
+          return await showCountryDetails(ctx, selectedCountry);
+      } catch (e) {
+          logger.error('Error in WA country selection:', e);
+          return ctx.reply('❌ An error occurred.');
+      }
+  });
+
+  bot.action('sms_buy_wa_confirmed_with_increase', async (ctx) => {
     ctx.answerCbQuery('Processing...').catch(() => {});
     
     try {
@@ -84,7 +119,8 @@ module.exports = (bot) => {
             return ctx.reply(`❌ Selected country no longer available (Session may have expired).`);
         }
 
-        const price = selectedCountry.price;
+        // Apply +1 increase here too
+        const price = selectedCountry.price + 1;
         const balance = Number(user.balance || 0);
 
         if (balance < price) {
@@ -149,7 +185,7 @@ module.exports = (bot) => {
         );
 
     } catch (error) {
-        logger.error('Error in sms_buy_wa_confirmed:', error);
+        logger.error('Error in sms_buy_wa_confirmed_with_increase:', error);
         return ctx.reply(`❌ An unexpected error occurred while processing your order.`);
     }
   });
