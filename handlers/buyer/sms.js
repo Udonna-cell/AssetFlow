@@ -1,8 +1,10 @@
 const { Markup } = require('telegraf');
 const smsService = require('../../utils/smsService');
 const dbService = require('../../database/dbService');
+const logger = require('../../utils/logger');
+const smsPollingService = require('../../utils/smsPollingService');
 const { escapeMarkdown } = require('../../utils/telegram');
-const AsYouType = require('awesome-phonenumber');
+const { parsePhoneNumber } = require('awesome-phonenumber');
 
 module.exports = (bot) => {
   bot.action('buyer_sms_services', async (ctx) => {
@@ -53,8 +55,12 @@ module.exports = (bot) => {
     const countryName = selectedCountry ? selectedCountry.countryName : `ID ${countryId}`;
     const dialCode = selectedCountry ? selectedCountry.dialCode : '';
 
-    // Save selection in session
-    ctx.session = { ...ctx.session, sms_country_id: countryId, sms_country_name: countryName, sms_dial_code: dialCode, sms_service: 'wa' };
+    // Robust session assignment
+    if (!ctx.session) ctx.session = {};
+    ctx.session.sms_country_id = countryId;
+    ctx.session.sms_country_name = countryName;
+    ctx.session.sms_dial_code = dialCode;
+    ctx.session.sms_service = 'wa';
     
     return ctx.editMessageText(`✅ **Country ${countryName} selected.**\nReady to purchase?`, {
         parse_mode: 'Markdown',
@@ -68,83 +74,83 @@ module.exports = (bot) => {
   bot.action('sms_buy_wa_confirmed', async (ctx) => {
     ctx.answerCbQuery('Processing...').catch(() => {});
     
-    const userId = ctx.from.id;
-    const user = await dbService.getUser(userId);
-    const countries = await smsService.getAvailableCountriesForService('wa');
-    const selectedCountry = countries.find(c => c.countryId === parseInt(ctx.session.sms_country_id));
-    
-    if (!selectedCountry) return ctx.reply(`❌ Selected country no longer available.`);
-
-    const price = selectedCountry.price;
-    const balance = Number(user.balance || 0);
-
-    if (balance < price) {
-        return ctx.editMessageText(`❌ **Insufficient Balance**\n\nYou need \`$${price.toFixed(2)}\` but your balance is \`$${balance.toFixed(2)}\`.\n\nPlease fund your wallet to continue.`, {
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([
-                [Markup.button.callback('💳 Fund Wallet', 'buyer_deposit')],
-                [Markup.button.callback('🔙 Back', 'buyer_sms_services')]
-            ])
-        });
-    }
-
-    // 1. Reserve number
-    const response = await smsService.getNumber(ctx.session.sms_country_id, 'wa');
-    if (!response.startsWith('ACCESS_NUMBER')) {
-        return ctx.reply(`❌ Failed to reserve a number: ${response}`);
-    }
-
-    const [_, activationId, rawPhoneNumber] = response.split(':');
-    
-    // Format phone number using awesome-phonenumber
-    // Ensure the number starts with '+' for proper parsing
-    const phoneToFormat = rawPhoneNumber.startsWith('+') ? rawPhoneNumber : `+${rawPhoneNumber}`;
-    const pn = new AsYouType(phoneToFormat);
-    
-    const formattedDisplay = pn.valid() 
-        ? `${pn.getCountryCode()} \`${pn.getNumber('national')}\``.replace('+', '+') 
-        : `\`${rawPhoneNumber}\``; // Fallback if invalid
-    
-    // 2. Deduct balance
-    user.balance = balance - price;
-    await dbService.saveUser(user);
-
-    // 3. Start Polling
-    const TIMEOUT_MS = 5 * 60 * 1000;
-    let timeLeft = TIMEOUT_MS;
-    
-    const message = await ctx.reply(`✅ **Number Reserved**\nNumber: ${formattedDisplay}\nWaiting for SMS code...\n⏱️ Time remaining: ${Math.floor(timeLeft / 60000)}m ${Math.floor((timeLeft % 60000) / 1000)}s`);
-
-    let pollCounter = 0;
-    const interval = setInterval(async () => {
-        timeLeft -= 1000;
-        pollCounter += 1000;
+    try {
+        const userId = ctx.from.id;
+        const user = await dbService.getUser(userId);
+        const countries = await smsService.getAvailableCountriesForService('wa');
+        const selectedCountry = countries.find(c => c.countryId === parseInt(ctx.session?.sms_country_id));
         
-        // Timeout check
-        if (timeLeft <= 0) {
-            clearInterval(interval);
-            await smsService.setStatus(activationId, -1); // Cancel
-            await dbService.incrementUserBalance(userId, price); // Refund
-            return ctx.telegram.editMessageText(ctx.chat.id, message.message_id, null, `⏰ **Timeout**\nNo code received within 5 minutes for ${formattedDisplay}. Order cancelled and balance refunded.`, { parse_mode: 'Markdown' }).catch(() => {});
+        if (!selectedCountry) {
+            return ctx.reply(`❌ Selected country no longer available (Session may have expired).`);
         }
 
-        // Poll API every 10 seconds
-        if (pollCounter >= 10000) {
-            pollCounter = 0;
-            const status = await smsService.getStatus(activationId);
-            if (status.startsWith('STATUS_OK')) {
-                clearInterval(interval);
-                const code = status.split(':')[1];
-                await smsService.setStatus(activationId, 6); // Set as completed
-                return ctx.telegram.editMessageText(ctx.chat.id, message.message_id, null, `🎉 **Code Received**\nNumber: ${formattedDisplay}\nCode: \`${code}\``, { parse_mode: 'Markdown' }).catch(() => {});
+        const price = selectedCountry.price;
+        const balance = Number(user.balance || 0);
+
+        if (balance < price) {
+            return ctx.editMessageText(`❌ **Insufficient Balance**\n\nYou need \`$${price.toFixed(2)}\` but your balance is \`$${balance.toFixed(2)}\`.\n\nPlease fund your wallet to continue.`, {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('💳 Fund Wallet', 'buyer_deposit')],
+                    [Markup.button.callback('🔙 Back', 'buyer_sms_services')]
+                ])
+            });
+        }
+
+        // 1. Reserve number
+        const response = await smsService.getNumber(ctx.session.sms_country_id, 'wa');
+        if (!response.startsWith('ACCESS_NUMBER')) {
+            return ctx.reply(`❌ Failed to reserve a number: ${response}`);
+        }
+
+        const [_, activationId, rawPhoneNumber] = response.split(':');
+        
+        // 2. Format phone number safely
+        let formattedDisplay = `\`${rawPhoneNumber}\``; // Default fallback
+        try {
+            const phoneToFormat = String(rawPhoneNumber).startsWith('+') ? String(rawPhoneNumber) : `+${String(rawPhoneNumber)}`;
+            
+            // Extreme defense: only attempt formatting if it looks strictly numeric after +
+            if (/^\+\d{7,15}$/.test(phoneToFormat)) {
+                // Try-catch block specifically around library usage
+                try {
+                    const pn = parsePhoneNumber(phoneToFormat);
+
+                    if (pn.valid) {
+                        formattedDisplay = `+${pn.countryCode} \`${pn.number.national}\``;
+                    } else {
+                        logger.warn('Phone number format rejected for formatting:', phoneToFormat);
+                    }
+                } catch (libError) {
+                    logger.warn('Library error, skipping formatting:', libError.message);
+                }
+            } else {
+                logger.warn('Phone number format rejected for formatting:', phoneToFormat);
             }
+        } catch (formatError) {
+            logger.error('Error in phone formatting logic:', formatError);
         }
+    
+        // 3. Deduct balance
+        user.balance = balance - price;
+        await dbService.saveUser(user);
 
-        // Update the countdown message
-        ctx.telegram.editMessageText(ctx.chat.id, message.message_id, null, 
-          `✅ **Number Reserved**\nNumber: ${formattedDisplay}\nWaiting for SMS code...\n⏱️ Time remaining: ${Math.floor(timeLeft / 60000)}m ${Math.floor((timeLeft % 60000) / 1000)}s`,
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
-    }, 1000); // Poll/Update every 1 second
+        // 4. Start Polling using the new service
+        const message = await ctx.reply(`✅ **Number Reserved**\nNumber: ${formattedDisplay}\nWaiting for SMS code...`);
+
+        await smsPollingService.startSmsPolling(
+            bot,
+            activationId,
+            userId,
+            price,
+            ctx.chat.id,
+            message.message_id,
+            formattedDisplay
+        );
+
+    } catch (error) {
+        logger.error('Error in sms_buy_wa_confirmed:', error);
+        return ctx.reply(`❌ An unexpected error occurred while processing your order.`);
+    }
   });
 };
